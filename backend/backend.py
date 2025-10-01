@@ -10,7 +10,7 @@ api = FastAPI()
 
 # Absolute path to the database file and index page
 db_path    = os.path.abspath(os.path.join(os.path.dirname(__file__), "../db_data/forecast.sqlite"))
-index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/index.html"))
+index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
 
 # Create the SQLite database engine and define path to the DB
 engine = create_engine(f"sqlite:///{db_path}", echo=False)
@@ -26,7 +26,7 @@ df.to_sql("forecast", engine, if_exists="replace", index=False)
 
 # API endpoint: return forecasts
 @api.get("/forecast")
-def get_forecast(start: str = None, end: str = None):
+def get_forecast(start: str = "", end: str = ""):
     """
     Return forecast data as JSON.
     - Default: today 00:00 → tomorrow 23:59 (local time).
