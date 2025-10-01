@@ -1,2 +1,2 @@
 # FlaireInformationPlatform
-An SQLite database, fastAPI and charting website for forecast data. Very work in progress and I don't know what I'm doing.
+An SQLite database, FastAPI and charting website for serving forecast data to consumers. Very work in progress and I don't know what I'm doing really.
