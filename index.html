@@ -141,7 +141,8 @@
     }
 
     async function loadForecast(start = null, end = null) {
-      let url = "/forecast";
+      let url ="https://southeastwardly-playable-tamekia.ngrok-free.dev/forecast";
+      // let url = "/forecast";
       if (start && end) {
         url += `?start=${start}&end=${end}`;
       }

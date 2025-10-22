@@ -4,3 +4,5 @@ An SQLite database, FastAPI and charting website for serving forecast data to co
 To host the server on localhost, run in root dir:
 uvicorn --app-dir backend backend:api --reload
 
+Tunnel with ngrok, for example:
+ngrok http 8000
