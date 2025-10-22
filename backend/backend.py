@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 from sqlalchemy import create_engine
 from datetime import datetime, timedelta
@@ -7,6 +8,14 @@ import os
 
 # Instantiate API
 api = FastAPI()
+
+# Configure cross-origin resource sharing
+api.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://flaireemissionforecast.github.io"],
+    allow_methods=["GET", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 # Absolute path to the database file and index page
 db_path    = os.path.abspath(os.path.join(os.path.dirname(__file__), "../db_data/forecast.sqlite"))
