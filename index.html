@@ -152,6 +152,7 @@
                                             "bypass-tunnel-reminder": "true"
                                             }
                                           });
+        // this should work with ngrok: "ngrok-skip-browser-warning": "1",
         if (!response.ok) {
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
