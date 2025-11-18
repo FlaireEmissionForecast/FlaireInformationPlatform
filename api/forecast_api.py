@@ -126,12 +126,12 @@ def forecast(
 
         if not run_id:
             run = conn.execute(
-                text("""SELECT run_id, created_at FROM runs WHERE series_key=:k ORDER BY created_at DESC LIMIT 1"""),
+                text("""SELECT * FROM runs WHERE series_key=:k ORDER BY created_at DESC LIMIT 1"""),
                 {"k": series_key},
             ).mappings().first()
             run_id = run["run_id"] if run else None
         else:
-            run = conn.execute(text("SELECT created_at FROM runs WHERE run_id=:r"), {"r": run_id}).mappings().first()
+            run = conn.execute(text("SELECT * FROM runs WHERE run_id=:r"), {"r": run_id}).mappings().first()
 
         hist_rows = conn.execute(
             text("""
