@@ -47,28 +47,35 @@ def _check_db_exists():
         )
     return None
 
-def _parse_range(tz_str: str, start: Optional[str], end: Optional[str]) -> tuple[datetime, datetime, ZoneInfo]:
-    tz = ZoneInfo(tz_str)
-    if start and end:
-        start = pd.to_datetime(start)
-        end   = pd.to_datetime(end)
-        if start.tzinfo is None: start = start.tz_localize(tz)
-        if end.tzinfo is None:   end   = end.tz_localize(tz)
-    else:
-        today = datetime.now(tz).date()
-        start = datetime.combine(today, time.min, tzinfo=tz)
-        end   = start + timedelta(days=2) - timedelta(seconds=1)
-    
-    start = start.astimezone(timezone.utc).isoformat()
-    end   = end.astimezone(timezone.utc).isoformat()
-    return start, end, tz
-
 def _iso_map(rows, tz: ZoneInfo) -> Dict[str, float]:
     out = {}
     for ts, val in rows:
-        ts = datetime.fromisoformat(ts).astimezone(tz)
+        # Parse UTC Naive DB timestamps as UTC aware
+        ts = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+        # Convert to requested timezone which shifts the times accordingly
+        ts = ts.astimezone(tz)
         out[ts.isoformat()] = round(float(val), 2)
     return out
+
+def _convert_local_ts_to_utc(ts_str : str, tzinfo : ZoneInfo) -> datetime:
+    # Parse UTC Naive DB timestamps as UTC aware
+    ts = datetime.fromisoformat(ts_str)
+    if ts.tzinfo is None:
+        # There should pretty much never be accompanying tzinfos
+        ts = ts.replace(tzinfo=tzinfo)
+
+    # Convert to database UTC timezone which shifts the times accordingly
+    return ts.astimezone(timezone.utc)
+
+def _convert_utc_ts_to_local(ts_str : str, tzinfo : ZoneInfo) -> datetime:
+    # Parse UTC Naive DB timestamps as UTC aware
+    ts = datetime.fromisoformat(ts_str)
+    if ts.tzinfo is None:
+        # There should pretty much never be accompanying tzinfos
+        ts = ts.replace(tzinfo=timezone.utc)
+
+    # Convert to database UTC timezone which shifts the times accordingly
+    return ts.astimezone(tzinfo)
 
 def _get_metrics(run_id : str, conn : Connection):
     m = conn.execute(text("SELECT metrics_json FROM metrics WHERE run_id=:r"), {"r": run_id}).mappings().first()
@@ -88,10 +95,23 @@ def _get_metrics(run_id : str, conn : Connection):
     return metrics
 
 def _parse_simple_delta(s : str):
+    """
+    Interprets many offset strings as Timedeltas. Not calendar aware and year and month are approximate:
+    - in (str): "1Y", "6M", "90D", "48H", "30min", etc.
+    - out (Timedelta): 365 days, 180 days, 90 days, 48 hours, 30 min, etc.
+
+    It is also possible to use ISO 8601 duration strings (e.g. \"P2W2D3H\").
+
+    https://pandas.pydata.org/docs/user_guide/timedeltas.html#parsing
+    """
     YEARS  = 365
     MONTHS = 30
 
     s = s.strip().upper()
+
+    if s.startswith("P"):
+        # Parse as ISO8601 duration string
+        return pd.Timedelta(s)
 
     if s.endswith("Y"):
         return pd.Timedelta(days=int(s[:-1]) * YEARS)
@@ -101,91 +121,144 @@ def _parse_simple_delta(s : str):
 
     return pd.Timedelta(s)
 
+def _get_history_data_by_datetime_range(conn, series_key, history_start, forecast_start):
+    # Fetch historical observations for the requested history window
+    return conn.execute(
+            text("""
+                SELECT timestamp, value FROM observations
+                WHERE series_key=:k AND kind='history'
+                AND timestamp >= :a AND timestamp < :b
+                ORDER BY timestamp
+                """),
+            {"k": series_key, "a": history_start, "b": forecast_start},
+        ).all()
+
+def _get_forecast_data_by_run_id(conn, series_key, run_id):
+    # Fetch forecast observations for the selected run
+    return conn.execute(
+            text("""
+                SELECT timestamp, value FROM observations
+                WHERE series_key=:k AND kind='forecast' AND run_id=:r
+                ORDER BY timestamp
+                """),
+            {"k": series_key, "r": run_id},
+        ).all()
+
+def _get_forecast_payload(series, run, hist_rows, fc_rows, metrics, tzinfo, run_id=None):
+    """
+    Build the standard forecast payload dict used by the endpoints.
+    """
+
+    # Convert timestamps from UTC to requested timezone
+    forecast_start_tz = _convert_utc_ts_to_local(run["forecast_start"], tzinfo)
+    generated_at_tz   = _convert_utc_ts_to_local(run["created_at"],     tzinfo)
+
+    return {
+        "metadata": {
+            "name"           : series["name"],
+            "unit"           : series["unit"],
+            "region"         : series["region"],
+            "source"         : series["source"],
+            "description"    : series["description"],
+            "frequency"      : series["frequency"],
+            "run_id"         : run_id or run.get("run_id"),
+            "forecast_start" : forecast_start_tz.replace(microsecond=0),
+            "generated_at"   : generated_at_tz.replace(microsecond=0),
+        },
+        "data": {
+            "history"  : _iso_map(hist_rows, tzinfo),
+            "forecast" : _iso_map(fc_rows,   tzinfo),
+        },
+        "metrics" : metrics or {},
+    }
+
 ############################
 ### API Endpoint Methods ###
 ############################
 @api.get("/forecast")
 def forecast(
-    series_key: str = Query(..., description="Always required, e.g. 'consumption_emissions'"),
-    start     : str | None = Query(default=None, description="Start date of query in an ISO compatible format (e.g. YYYY-MM-DDTHH:MM)"),
-    end       : str | None = Query(default=None, description="End date of query in an ISO compatible format (e.g. YYYY-MM-DDTHH:MM)"),
-    tz        : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
-    run_id    : str | None = Query(default=None, description="Forecast run UUID for requesting a specific run results")
+    series_key  : str = Query(..., description="Always required, e.g. 'consumption_emissions'"),
+    date        : str = Query(..., description="The date for which latest forecast is queried by creation date (e.g. '2025-06-15')"),
+    history_len : str | None = Query(default="1W", description="Desired amount of history to query with the forecast in Pandas offset alias format (e.g. '1W' for one week)"),
+    tz          : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
+    run_id      : str | None = Query(default=None, description="Forecast run UUID for requesting a specific run results")
     ):
+    """
+    Returns latest available forecast for a certain date with defined amount of historical data.
+    """
     # Check that the database exists, inform user if it does not
     warn = _check_db_exists()
     if warn:
         return warn
     
-    start_utc, end_utc, tzinfo = _parse_range(tz, start, end)
+    # Prepare timezone info
+    tzinfo = ZoneInfo(tz)
 
     with engine.begin() as conn:
         series = conn.execute(text("SELECT * FROM series WHERE series_key=:k"), {"k": series_key}).mappings().first()
         if not series:
             return {"error": f"series_key '{series_key}' not found"}
 
-        if not run_id:
-            run = conn.execute(
-                text("""SELECT * FROM runs WHERE series_key=:k ORDER BY created_at DESC LIMIT 1"""),
-                {"k": series_key},
-            ).mappings().first()
-            run_id = run["run_id"] if run else None
-        else:
-            run = conn.execute(text("SELECT * FROM runs WHERE run_id=:r"), {"r": run_id}).mappings().first()
-
-        hist_rows = conn.execute(
-            text("""
-                SELECT timestamp, value FROM observations
-                WHERE series_key=:k AND kind='history'
-                AND timestamp BETWEEN :a AND :b
-                ORDER BY timestamp
-                """),
-            {"k": series_key, "a": start_utc, "b": end_utc},
-        ).all()
-
+        # Determine which run to use: explicit run_id > date cutoff
         if run_id:
-            fc_rows = conn.execute(
+            run = conn.execute(
+                text("SELECT * FROM runs WHERE run_id=:r AND series_key=:k"),
+                {"r": run_id, "k": series_key},
+            ).mappings().first()
+        elif date:
+            # Conver timestamp ot database compatible format
+            ts = _convert_local_ts_to_utc(date, tzinfo)
+
+            # Use the whole day (00:00:00 .. < next day 00:00:00) in requested tz
+            day = ts.date()
+            day_start = datetime.combine(day, time.min, tzinfo=ZoneInfo(tz))
+            day_end = day_start + timedelta(days=1)
+
+            # Convert to UTC for DB comparison (DB stores timestamps in UTC ISO format)
+            day_start_utc = day_start.astimezone(timezone.utc).isoformat()
+            day_end_utc   = day_end.astimezone(timezone.utc).isoformat()
+
+            run = conn.execute(
                 text("""
-                    SELECT timestamp, value FROM observations
-                    WHERE series_key=:k AND kind='forecast' AND run_id=:r
-                    AND timestamp BETWEEN :a AND :b
-                    ORDER BY timestamp
+                    SELECT *
+                    FROM runs
+                    WHERE series_key = :k
+                      AND forecast_start >= :a
+                      AND forecast_start <  :b
+                    ORDER BY created_at DESC
+                    LIMIT 1
                     """),
-                {"k": series_key, "r": run_id, "a": start_utc, "b": end_utc},
-            ).all()
+                {"k": series_key, "a": day_start_utc, "b": day_end_utc},
+            ).mappings().first()
+
+            if not run:
+                return {"error": f"No forecast run found for date '{date}'"}
+
+            run_id = run["run_id"]
         else:
-            fc_rows = conn.execute(
-                text("""
-                    SELECT timestamp, value FROM observations
-                    WHERE series_key=:k AND kind='forecast'
-                    AND timestamp BETWEEN :a AND :b
-                    ORDER BY timestamp
-                    """),
-                {"k": series_key, "a": start_utc, "b": end_utc},
-            ).all()
+            return {"error": "Either run_id or date parameter must be provided"}
+
+        # Parse requested history length
+        try:
+            history_offset = _parse_simple_delta(history_len)
+        except Exception as e:
+            raise ValueError(f"Cannot parse history string '{history_len}' to Timedelta: {e}")
+
+        # Calculate start datetimes for historical and forecast data
+        forecast_start_utc = datetime.fromisoformat(run["forecast_start"])
+        history_start_utc = forecast_start_utc - history_offset
+
+        # Get historical and forecast data from the DB with date range and run ID
+        hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)        
+        fc_rows   = _get_forecast_data_by_run_id(conn, series_key, run_id)
 
         metrics = {}
         if run_id:
             metrics = _get_metrics(run_id, conn)
 
-    payload = {
-        "metadata": {
-            "name": series["name"],
-            "unit": series["unit"],
-            "region": series["region"],
-            "source": series["source"],
-            "description": series["description"],
-            "frequency": series["frequency"],
-            "run_id": run_id,
-            "forecast_start": run["forecast_start"],
-            "generated_at": run["created_at"],
-        },
-        "data": {
-            "history" : _iso_map(hist_rows, tzinfo),
-            "forecast": _iso_map(fc_rows,   tzinfo),
-        },
-        "metrics": metrics,
-    }
+    # Build forecast JSON payload
+    payload = _get_forecast_payload(series, run, hist_rows, fc_rows, 
+                                    metrics, tzinfo, run_id)
 
     return payload
 
@@ -204,6 +277,9 @@ def latest_forecast(
     warn = _check_db_exists()
     if warn:
         return warn
+    
+    # Prepare timezone info
+    tzinfo = ZoneInfo(tz)
 
     # Find start date for the query i.e. the start date of the latest forecast run series
     with engine.begin() as conn:
@@ -233,67 +309,30 @@ def latest_forecast(
                 {"k": series_key},
             ).mappings().first()
 
-        # Fetch forecast data for the identified run
-        fc_rows = conn.execute(
-            text("""
-                SELECT timestamp, value
-                FROM observations
-                WHERE series_key = :k
-                AND kind = 'forecast'
-                AND run_id = :r
-                ORDER BY timestamp
-                """),
-            {"k": series_key, "r": run["run_id"]},
-        ).all()
+            # Set run ID
+            run_id = run["run_id"]
 
         # Determine history start time based on requested history duration
         try:
-            # Interprets many offset strings as Timedeltas, not calendar aware:
-            # - "1Y", "6M", "90D", "48H", "30min", etc. as Timedelta
             history_offset = _parse_simple_delta(history_len)
         except Exception as e:
             raise ValueError(f"Cannot parse history string '{history_len}' to Timedelta: {e}")
 
+        # Calculate start datetimes for historical and forecast data
         forecast_start_utc = datetime.fromisoformat(run["forecast_start"])
         history_start_utc = forecast_start_utc - history_offset
 
-        hist_rows = conn.execute(
-            text("""
-                SELECT timestamp, value
-                FROM observations
-                WHERE series_key = :k
-                  AND kind = 'history'
-                  AND timestamp >= :hs
-                  AND timestamp <  :fs
-                ORDER BY timestamp
-                """
-                ),
-                {"k": series_key, "hs": history_start_utc, "fs": forecast_start_utc}
-        ).all()
+        # Get historical and forecast data from the DB with date range and run ID
+        hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)        
+        fc_rows   = _get_forecast_data_by_run_id(conn, series_key, run_id)
 
         metrics = {}
-        if run["run_id"]:
-            metrics = _get_metrics(run["run_id"], conn)
+        if run_id:
+            metrics = _get_metrics(run_id, conn)
 
-
-    payload = {
-        "metadata": {
-            "name": series["name"],
-            "unit": series["unit"],
-            "region": series["region"],
-            "source": series["source"],
-            "description": series["description"],
-            "frequency": series["frequency"],
-            "run_id": run["run_id"],
-            "forecast_start": run["forecast_start"],
-            "generated_at": run["created_at"],
-        },
-        "data": {
-            "history" : _iso_map(hist_rows, ZoneInfo(tz)),
-            "forecast": _iso_map(fc_rows,   ZoneInfo(tz)),
-        },
-        "metrics": metrics,
-    }
+    # Build forecast JSON payload
+    payload = _get_forecast_payload(series, run, hist_rows, fc_rows, 
+                                    metrics, tzinfo, run_id)
 
     return payload
 
@@ -383,4 +422,10 @@ if __name__ == "__main__":
         response = client.get("/forecast/latest", params={"series_key": "consumption_emissions"})
         assert response.status_code == 200
 
-    test_latest_forecast()
+    def test_forecast():
+        response = client.get("/forecast/", params={"series_key" : "consumption_emissions",
+                                                    "date"       : "2025-11-04"})
+        assert response.status_code == 200
+
+    test_forecast()
+    # test_latest_forecast()
