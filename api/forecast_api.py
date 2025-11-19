@@ -15,15 +15,16 @@ from sqlalchemy import create_engine, text, Connection
 DB_PATH    = os.getenv("DB_PATH", os.path.abspath("./db/forecasts.sqlite"))
 DEFAULT_TZ = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
 
-api = FastAPI(title="Flip Forecast API", version="0.1.0")
+# Define path to test website
+index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
+
+api = FastAPI(title="Flip Forecast API", version="0.2.0")
 
 api.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://flaireemissionforecast.github.io",
-        "http://localhost",
-        "http://127.0.0.1",
-        "http://localhost:5173",
+        "http://localhost"
     ],
     allow_methods=["GET", "OPTIONS"],
     allow_headers=["*"],
@@ -396,8 +397,8 @@ def info():
 
     return payload
 
-@api.get("/")
-def root():
+@api.get("/status")
+def status():
     """
     Check that the database exists, inform user if it does not
     """
@@ -406,6 +407,11 @@ def root():
         return warn
     
     return {"message" : f"Database OK, found from: {DB_PATH}"}
+
+# Serve website from root
+@api.get("/")
+def serve_website():
+    return FileResponse(index_path)
 
 # For browsers
 @api.get("/favicon.ico")

@@ -1,5 +1,4 @@
 # SQL database
-db_data/forecast.sqlite
 db/forecasts.sqlite*
 
 # Byte-compiled / optimized / DLL files

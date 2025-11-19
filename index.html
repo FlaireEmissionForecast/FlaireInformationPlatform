@@ -83,6 +83,41 @@
       cursor: pointer;
     }
 
+    .series-buttons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .series-button {
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid #ccc;
+      background-color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .series-button.active {
+      background-color: #4a90e2;
+      color: #fff;
+      border-color: #4a90e2;
+    }
+
+    body.dark-theme .series-button {
+      background-color: #222;
+      color: #eee;
+      border-color: #555;
+    }
+
+    body.dark-theme .series-button.active {
+      background-color: #4a90e2;
+      color: #fff;
+      border-color: #4a90e2;
+    }
+
     #chart-container {
       width: 95%;
       max-width: 1200px;
@@ -116,126 +151,372 @@
   </div>
 
   <div class="controls">
-    <label for="start">Start:</label>
-    <input type="date" id="start">
-    <label for="end">End:</label>
-    <input type="date" id="end">
+    <label for="forecast-date">Forecast date:</label>
+    <input type="date" id="forecast-date">
+    <label for="history-select">History:</label>
+    <select id="history-select"></select>
     <button id="load-button">Load Forecast</button>
+    <button id="latest-button">Latest Forecast</button>
     <button id="theme-toggle">Toggle Theme</button>
   </div>
+
+  <div id="series-buttons" class="series-buttons"></div>
+
   <div id="chart-container">
     <div id="chart" style="width:100%;height:100%;"></div>
   </div>
   <script>
-    const chartDiv = document.getElementById('chart');
-    const startInput = document.getElementById('start');
-    const endInput = document.getElementById('end');
-    const loadButton = document.getElementById('load-button');
-    const themeToggleButton = document.getElementById('theme-toggle');
+  const chartDiv = document.getElementById('chart');
+  const forecastDateInput = document.getElementById('forecast-date');
+  const loadButton = document.getElementById('load-button');
+  const latestButton = document.getElementById('latest-button');
+  const themeToggleButton = document.getElementById('theme-toggle');
+  const historySelect = document.getElementById('history-select');
+  const seriesButtonsContainer = document.getElementById('series-buttons');
 
-    // Default to light theme
-    let currentTheme = 'light';
+  // API config (adjust base URL if needed)
+  let API_BASE = ""; // if site served from same host as API
+  if (location.hostname.endsWith("github.io")) {
+    API_BASE = "https://flipapi.loca.lt"; // if site served at GitHub Pages
+  }
 
-    function formatDate(date) {
-      return date.toISOString().split('T')[0];
-    }
+  let currentSeriesKey = "consumption_emissions"; // default; will be updated from /info
+  const DEFAULT_TZ = "Europe/Helsinki";
 
-    async function loadForecast(start = null, end = null) {
-      let url ="https://flipapi.loca.lt/forecast";
-      // let url ="https://southeastwardly-playable-tamekia.ngrok-free.dev/forecast";
-      // let url = "/forecast";
-      if (start && end) {
-        url += `?start=${start}&end=${end}`;
-      }
-      try {
-        const response = await fetch(url, {headers: {
-                                            "bypass-tunnel-reminder": "true"
-                                            }
-                                          });
-        // this should work with ngrok: "ngrok-skip-browser-warning": "1",
-        if (!response.ok) {
-          throw new Error(`HTTP error! Status: ${response.status}`);
+  // Default to light theme
+  let currentTheme = 'light';
+
+  function formatDate(date) {
+    return date.toISOString().split('T')[0];
+  }
+
+  function buildLayout(title, forecastStart, payloadUnit) {
+    const lightThemeGridColor = '#cccccc';
+
+    const shapes = [];
+    if (forecastStart) {
+      shapes.push({
+        type: 'line',
+        x0: forecastStart,
+        x1: forecastStart,
+        yref: 'paper',
+        y0: 0,
+        y1: 1,
+        line: {
+          dash: 'dot',
+          width: 2,
+          color: '#888'
         }
-        const data = await response.json();
-        const trace = {
-          x: data.map(d => d.timestamp),
-          y: data.map(d => d.value),
-          type: "scatter",
-          mode: "lines+markers",
-          name: "Forecast",
-          fill: 'tozeroy',
-          fillcolor: 'rgba(74, 144, 226, 0.2)',
-          line: {
-            color: 'rgb(74, 144, 226)',
-            width: 3,
-            shape: 'spline'
-          },
-          marker: { size: 6, symbol: 'circle' },
-          hovertemplate: '<b>%{y:.2f}</b> at %{x|%H:%M}<extra></extra>'
-        };
-
-        // Define grid color for the light theme
-        const lightThemeGridColor = '#cccccc';
-
-        // Layout uses the currentTheme variable
-        const layout = {
-          template: currentTheme === 'dark' ? 'plotly_dark' : 'plotly_white',
-          title: "Forecast Data",
-          paper_bgcolor: 'rgba(0,0,0,0)',
-          plot_bgcolor: 'rgba(0,0,0,0)',
-          xaxis: {
-            title: "Time",
-            rangeslider: { visible: true },
-            gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
-          },
-          yaxis: {
-            title: "Value",
-            gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
-          },
-          margin: { l: 50, r: 20, t: 60, b: 70 },
-          autosize: true
-        };
-
-        const config = { responsive: true, displaylogo: false };
-        Plotly.newPlot(chartDiv, [trace], layout, config);
-      } catch (error) {
-        chartDiv.innerHTML = `<p style="color:red;">Could not load forecast data. ${error.message}</p>`;
-        console.error("Error loading forecast:", error);
-      }
-    }
-
-    function toggleTheme() {
-      currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-      document.body.classList.toggle('dark-theme');
-
-      const newTemplate = currentTheme === 'dark' ? 'plotly_dark' : 'plotly_white';
-      const newGridColor = currentTheme === 'light' ? '#cccccc' : undefined;
-
-      Plotly.relayout(chartDiv, {
-        template: newTemplate,
-        'xaxis.gridcolor': newGridColor,
-        'yaxis.gridcolor': newGridColor
       });
     }
 
-    // --- Event Listeners ---
-    loadButton.addEventListener('click', () => {
-      loadForecast(startInput.value, endInput.value);
-    });
+    return {
+      template: currentTheme === 'dark' ? 'plotly_dark' : 'plotly_white',
+      title: title,
+      paper_bgcolor: 'rgba(0,0,0,0)',
+      plot_bgcolor: 'rgba(0,0,0,0)',
 
-    themeToggleButton.addEventListener('click', toggleTheme);
+      legend: {
+        x: 0.91,
+        y: 1.25,
+        bgcolor:
+          currentTheme === "dark"
+            ? "rgba(0,0,0,0.4)"
+            : "rgba(255,255,255,0.7)",
+        bordercolor:
+          currentTheme === "dark"
+            ? "rgba(255,255,255,0.2)"
+            : "rgba(0,0,0,0.2)",
+        borderwidth: 1,
+        font: { size: 12 }
+      },
 
-    function initialize() {
-      const today = new Date();
-      const tomorrow = new Date();
-      tomorrow.setDate(today.getDate() + 1);
-      startInput.value = formatDate(today);
-      endInput.value = formatDate(tomorrow);
+      xaxis: {
+        title: "Time",
+        rangeslider: { visible: true },
+        // dtick: 6 * 60 * 60 * 1000, // 6h in ms
+        gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
+      },
+      yaxis: {
+        title: payloadUnit || "Value",
+        gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
+      },
+      margin: { l: 50, r: 20, t: 60, b: 70 },
+      autosize: true,
+      shapes: shapes
+    };
+  }
 
-      loadForecast(startInput.value, endInput.value);
+  function makeTracesFromPayload(payload) {
+    const data = payload.data || {};
+    const history = data.history || {};
+    const forecast = data.forecast || {};
+
+    const historyEntries = Object.entries(history).sort(
+      (a, b) => new Date(a[0]) - new Date(b[0])
+    );
+    const forecastEntries = Object.entries(forecast).sort(
+      (a, b) => new Date(a[0]) - new Date(b[0])
+    );
+
+    const historyTrace = {
+      x: historyEntries.map(e => e[0]),
+      y: historyEntries.map(e => e[1]),
+      type: "scatter",
+      mode: "lines",
+      name: "History",
+      fill: 'tozeroy',
+      fillcolor: 'rgba(74, 144, 226, 0.1)',
+      line: {
+        color: 'rgb(74, 144, 226)', // Light blue
+        width: 3,
+        shape: 'spline'
+      },
+      hovertemplate: '<b>%{y:.2f}</b> at %{x|%Y-%m-%d %H:%M}<extra>History</extra>'
+    };
+
+    const forecastTrace = {
+      x: forecastEntries.map(e => e[0]),
+      y: forecastEntries.map(e => e[1]),
+      type: "scatter",
+      mode: "lines",
+      name: "Forecast",
+      fill: 'tozeroy',
+      fillcolor: 'rgba(255, 140, 0, 0.1)',
+      line: {
+        color: 'rgb(255, 140, 0)', // strong orange
+        width: 3,
+        shape: 'spline'
+      },
+      marker: { size: 6, symbol: 'circle', color: 'rgb(255, 140, 0)' },
+      hovertemplate: '<b>%{y:.2f}</b> at %{x|%Y-%m-%d %H:%M}<extra>Forecast</extra>'
+    };
+
+    return [historyTrace, forecastTrace];
+  }
+
+  function initHistoryOptionsFromInfo(infoPayload, seriesKey, preserveSelection = false) {
+    const hist = infoPayload.history.find(h => h.series_key === seriesKey);
+    if (!hist) return;
+
+    const start = new Date(hist.history_start);
+    const end   = new Date(hist.history_end);
+
+    const totalDays = Math.max(1, Math.floor((end - start) / (1000 * 60 * 60 * 24)));
+    const maxWeeks = Math.floor(totalDays / 7);
+
+    const previousValue = preserveSelection ? historySelect.value : null;
+
+    historySelect.innerHTML = "";
+
+    // Up to 7 days
+    const dayLimit = Math.min(7, totalDays);
+    for (let d = 1; d <= dayLimit; d++) {
+      const opt = document.createElement("option");
+      opt.value = `${d}D`;
+      opt.textContent = `${d} day${d > 1 ? "s" : ""}`;
+      historySelect.appendChild(opt);
     }
 
-    initialize();
-  </script>
+    // Weeks from 2 to max
+    for (let w = 2; w <= maxWeeks; w++) {
+      const opt = document.createElement("option");
+      opt.value = `${w}W`;
+      opt.textContent = `${w} week${w > 1 ? "s" : ""}`;
+      historySelect.appendChild(opt);
+    }
+
+    // Try to restore previous selection if still valid
+    if (preserveSelection && previousValue &&
+        historySelect.querySelector(`option[value="${previousValue}"]`)) {
+      historySelect.value = previousValue;
+    } else {
+      // default selection
+      if (historySelect.querySelector('option[value="7D"]')) {
+        historySelect.value = "7D";
+      } else if (historySelect.options.length > 0) {
+        historySelect.value = historySelect.options[historySelect.options.length - 1].value;
+      }
+    }
+  }
+
+  function initSeriesButtons(infoPayload) {
+    seriesButtonsContainer.innerHTML = "";
+
+    infoPayload.series.forEach((s, idx) => {
+      const btn = document.createElement("button");
+      btn.textContent = s.name;
+      btn.className = "series-button";
+      btn.dataset.seriesKey = s.series_key;
+
+      if (s.series_key === currentSeriesKey || (!currentSeriesKey && idx === 0)) {
+        currentSeriesKey = s.series_key;
+        btn.classList.add("active");
+      }
+
+      btn.addEventListener("click", () => {
+        currentSeriesKey = s.series_key;
+
+        // update active state
+        document.querySelectorAll(".series-button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+
+        // rebuild history options for the selected series, preserving selection if possible
+        initHistoryOptionsFromInfo(infoPayload, currentSeriesKey, true);
+
+        // reload latest forecast for this series
+        loadLatestForecast();
+      });
+
+      seriesButtonsContainer.appendChild(btn);
+    });
+
+    // Initialize history dropdown for currently selected series
+    initHistoryOptionsFromInfo(infoPayload, currentSeriesKey);
+  }
+
+  async function fetchJson(url) {
+    const response = await fetch(url, {
+      headers: {
+        "bypass-tunnel-reminder": "true"
+        // "ngrok-skip-browser-warning": "1"
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async function fetchInfo() {
+    const url = `${API_BASE}/info`;
+    const response = await fetch(url, {
+      headers: {
+        "bypass-tunnel-reminder": "true"
+      }
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to load /info: ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async function loadForecastByDate(dateStr) {
+    if (!dateStr) {
+      chartDiv.innerHTML = `<p style="color:red;">Please select a forecast date.</p>`;
+      return;
+    }
+
+    const params = new URLSearchParams({
+      series_key: currentSeriesKey,
+      date: dateStr,
+      history_len: historySelect.value || "3D",
+      tz: DEFAULT_TZ
+    });
+
+    const url = `${API_BASE}/forecast?${params.toString()}`;
+
+    try {
+      const payload = await fetchJson(url);
+
+      if (payload.error) {
+        chartDiv.innerHTML = `<p style="color:red;">${payload.error}</p>`;
+        return;
+      }
+
+      const traces = makeTracesFromPayload(payload);
+      const forecastStart = payload.metadata && payload.metadata.forecast_start;
+      const titleDate = forecastStart ? forecastStart.split('T')[0] : '';
+      const seriesName = (payload.metadata?.name || "forecast").toLowerCase();
+      const title = `Forecast of ${seriesName} for ${titleDate}`;
+
+      const payloadUnit = payload.metadata?.unit;
+      const layout = buildLayout(title, forecastStart, payloadUnit);
+      const config = { responsive: true, displaylogo: false };
+      Plotly.newPlot(chartDiv, traces, layout, config);
+    } catch (error) {
+      chartDiv.innerHTML = `<p style="color:red;">Could not load forecast data. ${error.message}</p>`;
+      console.error("Error loading forecast by date:", error);
+    }
+  }
+
+  async function loadLatestForecast() {
+    const params = new URLSearchParams({
+      series_key: currentSeriesKey,
+      history_len: historySelect.value || "3D",
+      tz: DEFAULT_TZ
+    });
+
+    const url = `${API_BASE}/forecast/latest?${params.toString()}`;
+
+    try {
+      const payload = await fetchJson(url);
+
+      if (payload.error) {
+        chartDiv.innerHTML = `<p style="color:red;">${payload.error}</p>`;
+        return;
+      }
+
+      const traces = makeTracesFromPayload(payload);
+      const forecastStart = payload.metadata && payload.metadata.forecast_start;
+      const titleDate = forecastStart ? forecastStart.split('T')[0] : '';
+      const seriesName = (payload.metadata?.name || "forecast").toLowerCase();
+      const title = `Forecast of ${seriesName} from: ${titleDate}`;
+
+      const payloadUnit = payload.metadata?.unit;
+      const layout = buildLayout(title, forecastStart, payloadUnit);
+      const config = { responsive: true, displaylogo: false };
+      Plotly.newPlot(chartDiv, traces, layout, config);
+    } catch (error) {
+      chartDiv.innerHTML = `<p style="color:red;">Could not load latest forecast. ${error.message}</p>`;
+      console.error("Error loading latest forecast:", error);
+    }
+  }
+
+  function toggleTheme() {
+    currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+    document.body.classList.toggle('dark-theme');
+
+    const newTemplate = currentTheme === 'dark' ? 'plotly_dark' : 'plotly_white';
+    const newGridColor = currentTheme === 'light' ? '#cccccc' : undefined;
+
+    Plotly.relayout(chartDiv, {
+      template: newTemplate,
+      'xaxis.gridcolor': newGridColor,
+      'yaxis.gridcolor': newGridColor
+    });
+  }
+
+  // --- Event Listeners ---
+  loadButton.addEventListener('click', () => {
+    loadForecastByDate(forecastDateInput.value);
+  });
+
+  latestButton.addEventListener('click', () => {
+    loadLatestForecast();
+  });
+
+  themeToggleButton.addEventListener('click', toggleTheme);
+
+  historySelect.addEventListener('change', () => {
+    loadLatestForecast();
+  });
+
+  async function initialize() {
+    const today = new Date();
+    forecastDateInput.value = formatDate(today);
+
+    try {
+      const infoPayload = await fetchInfo();
+      initSeriesButtons(infoPayload);
+    } catch (err) {
+      console.error("Could not initialize series/history options:", err);
+    }
+
+    await loadLatestForecast();
+  }
+
+  initialize();
+</script>
 </body>
 </html>
