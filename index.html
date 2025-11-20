@@ -216,6 +216,8 @@
       paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: 'rgba(0,0,0,0)',
 
+      hovermode: "x unified",
+
       legend: {
         x: 0.91,
         y: 1.25,
@@ -234,7 +236,7 @@
       xaxis: {
         title: "Time",
         rangeslider: { visible: true },
-        // dtick: 6 * 60 * 60 * 1000, // 6h in ms
+        // tickformat: "%Y-%m-%d %H:%M",
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
       },
       yaxis: {
@@ -251,6 +253,7 @@
     const data = payload.data || {};
     const history = data.history || {};
     const forecast = data.forecast || {};
+    const unit = payload.metadata?.unit || "";
 
     const historyEntries = Object.entries(history).sort(
       (a, b) => new Date(a[0]) - new Date(b[0])
@@ -259,12 +262,19 @@
       (a, b) => new Date(a[0]) - new Date(b[0])
     );
 
+    // Connect history and forecast traces by adding first forecast point to history
+    if (historyEntries.length > 0 && forecastEntries.length > 0) {
+      const firstForecast = forecastEntries[0];
+      historyEntries.push(firstForecast);
+    }
+
     const historyTrace = {
       x: historyEntries.map(e => e[0]),
       y: historyEntries.map(e => e[1]),
       type: "scatter",
       mode: "lines",
       name: "History",
+      meta: { unit: unit },
       fill: 'tozeroy',
       fillcolor: 'rgba(74, 144, 226, 0.1)',
       line: {
@@ -272,7 +282,7 @@
         width: 3,
         shape: 'spline'
       },
-      hovertemplate: '<b>%{y:.2f}</b> at %{x|%Y-%m-%d %H:%M}<extra>History</extra>'
+      hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>',
     };
 
     const forecastTrace = {
@@ -281,6 +291,7 @@
       type: "scatter",
       mode: "lines",
       name: "Forecast",
+      meta: { unit: unit },
       fill: 'tozeroy',
       fillcolor: 'rgba(255, 140, 0, 0.1)',
       line: {
@@ -289,7 +300,7 @@
         shape: 'spline'
       },
       marker: { size: 6, symbol: 'circle', color: 'rgb(255, 140, 0)' },
-      hovertemplate: '<b>%{y:.2f}</b> at %{x|%Y-%m-%d %H:%M}<extra>Forecast</extra>'
+      hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>',
     };
 
     return [historyTrace, forecastTrace];
