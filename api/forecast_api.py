@@ -3,17 +3,24 @@ from __future__ import annotations
 import os
 import json
 from datetime import datetime, time, timedelta, timezone
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text, Connection
 
+# Import class for managing local DB
+from db_manager import (ForecastDB, 
+                        SeriesProps, 
+                        TVPoint, 
+                        BatchUpsertPayload)
+
 DB_PATH    = os.getenv("DB_PATH", os.path.abspath("./db/forecasts.sqlite"))
 DEFAULT_TZ = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
+API_KEY    = os.getenv("FORECAST_API_KEY", "dev-only-key")  # set in env
 
 # Define path to test website
 index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
@@ -31,6 +38,10 @@ api.add_middleware(
 )
 
 engine = create_engine(f"sqlite:///{DB_PATH}", future=True, echo=False)
+
+def _verify_api_key(x_api_key: str = Header(None)):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
 def _check_db_exists():
     """Check whether the database file exists before any query."""
@@ -407,6 +418,53 @@ def status():
         return warn
     
     return {"message" : f"Database OK, found from: {DB_PATH}"}
+
+### Upsert incoming POST request to local DB ###
+
+@api.post("/db/batch_upsert", 
+          dependencies=[Depends(_verify_api_key)], 
+          include_in_schema=False)
+def batch_upsert(payload: BatchUpsertPayload):
+    # Recreate SeriesProps
+    props = SeriesProps(
+        series_key=payload.series.series_key,
+        name=payload.series.name,
+        unit=payload.series.unit,
+        region=payload.series.region,
+        source=payload.series.source,
+        description=payload.series.description,
+        frequency=payload.series.frequency,
+    )
+
+    db = ForecastDB(db_path=DB_PATH, props=props)
+
+    # Recreate DataFrames
+    def to_df(points: List[TVPoint]) -> pd.DataFrame:
+        if not points:
+            return pd.DataFrame(columns=["timestamp", "value"])
+        return pd.DataFrame(
+            {"timestamp": [p.timestamp for p in points],
+             "value": [p.value for p in points]}
+        )
+
+    history_df = to_df(payload.history)
+    forecast_df = to_df(payload.forecast)
+
+    # Upsert history + prune + forecast + metrics
+    if not history_df.empty:
+        db.write_history(history_df, input_tz="UTC")
+        db.prune_history(payload.history_prune_max_age)
+
+    run_id = None
+    if not forecast_df.empty:
+        run_id = db.write_forecast(
+            forecast_df,
+            input_tz="UTC",
+            forecast_horizon=payload.forecast_horizon or len(forecast_df),
+            metrics=payload.metrics,
+        )
+
+    return {"status": "ok", "run_id": run_id}
 
 # Serve website from root
 @api.get("/")
