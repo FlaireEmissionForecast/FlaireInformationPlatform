@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Mapping, Optional, Dict, Any
+from typing import Mapping, Optional, Dict, List, Any
 from pydantic import BaseModel
 import math
 import os
@@ -45,22 +45,12 @@ class TVPoint(BaseModel):
     timestamp: datetime
     value: float
 
-class SeriesMeta(BaseModel):
-    series_key: str
-    name: str
-    unit: str
-    region: str
-    source: str
-    description: str
-    frequency: str
-
 class BatchUpsertPayload(BaseModel):
-    series: SeriesMeta
+    series: SeriesProps
+    properties: Dict[str, Any] = {}
     history: List[TVPoint]
     forecast: List[TVPoint]
     metrics: Dict[str, Any] = {}
-    history_prune_max_age: str = "1Y"
-    forecast_horizon: Optional[int] = None
 
 class ForecastDB:
     """
@@ -148,8 +138,7 @@ class ForecastDB:
             conn.execute(stmt)
 
     # Public methods
-    def write_history(self, obj: pd.Series | pd.DataFrame, *, input_tz: str = "UTC") -> int:
-        df = self._prepare(obj, input_tz=input_tz)
+    def write_history(self, df: pd.Series | pd.DataFrame, *, input_tz: str = "UTC") -> int:
         return self._bulk_upsert(df, kind="history", run_id=None)
     
     def prune_history(self, max_age: str = "52W") -> int:
@@ -240,8 +229,7 @@ class ForecastDB:
                 )
                 conn.execute(stmt)
 
-            df = self._prepare(obj, input_tz=input_tz)
-            self._bulk_upsert(df, kind="forecast", run_id=run_id)
+            self._bulk_upsert(obj, kind="forecast", run_id=run_id)
         except Exception as e:
             print("[ERROR] Local database update failed: {e}")
             return None
@@ -285,50 +273,6 @@ class ForecastDB:
             conn.execute(text("PRAGMA synchronous=NORMAL;"))
             conn.execute(text("PRAGMA foreign_keys=ON;"))
 
-    def _prepare(self, obj: pd.Series | pd.DataFrame, *, input_tz: str) -> pd.DataFrame:
-        # Normalize to DataFrame(timestamp,value)
-        if isinstance(obj, pd.Series):
-            if not isinstance(obj.index, pd.DatetimeIndex):
-                raise ValueError("Series must have a DatetimeIndex.")
-            df = obj.to_frame(name="value").reset_index(names="timestamp")
-        elif isinstance(obj, pd.DataFrame):
-            if {"timestamp", "value"}.issubset(obj.columns):
-                df = obj[["timestamp", "value"]].copy()
-            else:
-                if obj.shape[1] < 2:
-                    raise ValueError("DataFrame must have 'timestamp' and 'value' columns.")
-                df = obj.iloc[:, :2].copy()
-                df.columns = ["timestamp", "value"]
-        else:
-            raise TypeError("obj must be a pandas Series or DataFrame.")
-
-        # Timestamps: localize to input_tz if naive, then convert to UTC
-        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=False)
-        if df["timestamp"].dt.tz is None:
-            df["timestamp"] = df["timestamp"].dt.tz_localize(input_tz)
-        df["timestamp"] = df["timestamp"].dt.tz_convert("UTC")
-
-        # Sort & dedupe
-        df.sort_values("timestamp", inplace=True)
-        df.drop_duplicates(subset=["timestamp"], keep="last", inplace=True, ignore_index=True)
-
-        # Frequency validation
-        expected = to_offset(self.props.frequency)
-        if not df.empty:
-            deltas = df["timestamp"].diff().dropna().dt.total_seconds().to_numpy()
-            if deltas.size and not np.allclose(deltas, pd.to_timedelta(expected).total_seconds()):
-                raise ValueError(f"Frequency validation failed: expected uniform '{self.props.frequency}'.")
-
-        # Values validation + rounding
-        s = pd.to_numeric(df["value"], errors="raise").astype(float)
-        if np.isinf(s).any():
-            raise ValueError("Values contain +/-inf.")
-        if np.isnan(s).any():
-            raise ValueError("Values contain NaNs.")
-        df["value"] = s.round(2)
-
-        return df
-
     def _bulk_upsert(self, df: pd.DataFrame, *, kind: str, run_id: Optional[str]) -> int:
         if kind not in ("history", "forecast"):
             raise ValueError("kind must be 'history' or 'forecast'.")
@@ -338,7 +282,7 @@ class ForecastDB:
             {
                 "series_key": self.props.series_key,
                 "kind": kind,
-                "timestamp": ts.to_pydatetime(),
+                "timestamp": ts.astimezone(timezone.utc),
                 "value": float(val),
                 "run_id": run_id,
             }
@@ -366,188 +310,3 @@ class ForecastDB:
             return pd.Timedelta(days=int(s[:-1]) * MONTHS)
 
         return pd.Timedelta(s)
-    
-    def sync_remote_batch(
-        self,
-        meta: Dict[str, Any],
-        series_key: str,
-        run_id : str,
-        # History and forecast as ["timestamp", "value"] DFs
-        h_tv: pd.DataFrame,
-        f_tv: pd.DataFrame,
-        metrics: Mapping[str, float | int | None],
-        freq: str,
-        prune_age: str = "1Y",
-    ) -> Optional[str]:
-        """
-        Push the same batch to a remote FastAPI/SQLite service, if configured.
-        Returns remote run_id (if any) or None.
-        """
-        if not REMOTE_API_URL:
-            print("[WARNING] No remote API URL defined")
-            return None
-
-        # Build payload compatible with FastAPI's BatchUpsertPayload
-        series_meta = {
-            "series_key": series_key,
-            "name": meta["name"],
-            "unit": meta["unit"],
-            "region": meta["region"],
-            "source": meta["source"],
-            "description": meta["description"],
-            "frequency": freq,
-        }
-
-        def to_list(tv_df : pd.DataFrame):
-            return [{"timestamp" : ts.isoformat(), "value" : val} 
-                    for ts, val in zip(tv_df["timestamp"], tv_df["value"])]
-
-        # Conver dataframes to list of dictionary values for payload
-        h_list = to_list(h_tv)
-        f_list = to_list(f_tv)
-
-        payload = {
-            "series"            : series_meta,
-            "history"           : h_list,
-            "forecast "         : f_list,
-            "metrics"           : dict(metrics or {}),
-            "history_prune_age" : prune_age,
-            "forecast_horizon"  : len(f_tv),
-            "run_id"            : run_id
-        }
-
-        url = REMOTE_API_URL.rstrip("/") + "/db/batch_upsert"
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": REMOTE_API_KEY or "",
-        }
-
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=10)
-            resp.raise_for_status()
-            data = resp.json()
-            # If successful, return run_id from remote
-            return data.get("run_id")
-        except Exception as e:
-            # Don't break local writes if remote is down; just log a warning.
-            print(f"[WARNING] Remote sync failed for '{series_key}': {e}")
-            return None
-
-# Upsert history, forecasts and metrics to DB
-def save_forecasts_to_db(
-    forecasts: Dict[str, Dict[str, Any]],
-    data_description: Dict[str, Dict[str, Any]],
-    input_tz: str = "Europe/Helsinki",
-    ) -> Dict[str, str]:
-    """
-    Persist a whole batch of forecast data and variables to SQLite.
-
-    Args:
-        forecasts (dict):
-            Mapping of variable names to forecast data:
-
-            ```
-            {
-                "<variable_name>": {
-                    "y_train": pd.DataFrame,
-                    "y_pred": pd.DataFrame,
-                    "metrics": dict
-                }
-            }
-            ```
-
-        data_description (dict):
-            Mapping of variable names to metadata:
-
-            ```
-            {
-                "<variable_name>": {
-                    "name": "<display name>",      # REQUIRED
-                    "unit": "<unit>",              # REQUIRED
-                    "region": "FI",                # REQUIRED (FI only)
-                    "source": "<source>",          # REQUIRED
-                    "description": "<text>",       # REQUIRED
-                    # optional: "frequency": "1h"  # if omitted, inferred from indices
-                }
-            }
-            ```
-
-    Returns:
-        run_IDs (dict): 
-            Mapping of {series_key -> run_id} for the forecast writes.
-    """
-    out_run_ids: Dict[str, str] = {}
-
-    for series_key, meta in data_description.items():
-        data = forecasts.get(series_key, {})
-        if not data:
-            raise KeyError(f"Variable '{series_key}' missing in forecasts.")
-
-        # Get and forecast data and possible forecast metricss
-        history_df  : pd.DataFrame = data["y_train"]
-        forecast_df : pd.DataFrame = data["y_pred"]
-        metrics     : Mapping[str, float] = data.get("metrics", {})
-
-        # Normalize to timestamp/value two-column frames
-        def to_tv(df: pd.DataFrame) -> pd.DataFrame:
-            # Expect single value column; if multiple, take first
-            # Use index as timestamp, first column as value
-            val = df.columns[0]
-            tv = pd.DataFrame({"timestamp": df.index, "value": df[val].values})
-            return tv
-
-        h_tv = to_tv(history_df)
-        f_tv = to_tv(forecast_df)
-
-        # Infer frequency if not provided
-        freq = meta.get("frequency")
-        if not freq:
-            # Try forecast first; fall back to history
-            for idx in (forecast_df.index, history_df.index):
-                if isinstance(idx, pd.DatetimeIndex):
-                    freq = pd.infer_freq(idx)
-                    if freq:
-                        break
-            if not freq:
-                raise ValueError(f"Cannot infer frequency for '{series_key}'. Provide meta['frequency'].")
-            
-        freq = str(freq).lower()
-
-        # Build series properties for the DB write
-        props = SeriesProps(
-            series_key=series_key,
-            name=meta["name"],
-            unit=meta["unit"],
-            region=meta["region"],
-            source=meta["source"],
-            description=meta["description"],
-            frequency=freq,  # e.g. "1h"
-        )
-
-        db = ForecastDB(db_path=DB_PATH, props=props)
-
-        # History then forecast (forecast returns run_id)
-        prune_age = "1Y"
-        db.write_history(h_tv, input_tz=input_tz)   
-        db.prune_history(prune_age)
-        run_id = db.write_forecast(
-            f_tv,
-            input_tz=input_tz,
-            metrics=metrics,
-            forecast_horizon=len(forecast_df),
-        )
-        out_run_ids[series_key] = run_id
-
-        if SYNC_REMOTE and run_id:
-            db.sync_remote_batch(meta, 
-                                 series_key, 
-                                 run_id,
-                                 h_tv,
-                                 f_tv,
-                                 metrics,
-                                 freq,
-                                 prune_age)
-
-        print(f"[DONE] Persisted \"{meta['name']}\" forecast run results to: {DB_PATH}")
-
-    return out_run_ids

@@ -20,7 +20,7 @@ from db_manager import (ForecastDB,
 
 DB_PATH    = os.getenv("DB_PATH", os.path.abspath("./db/forecasts.sqlite"))
 DEFAULT_TZ = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
-API_KEY    = os.getenv("FORECAST_API_KEY", "dev-only-key")  # set in env
+API_KEY    = os.getenv("FORECAST_API_KEY", "test1234")  # set in env
 
 # Define path to test website
 index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
@@ -420,10 +420,10 @@ def status():
     return {"message" : f"Database OK, found from: {DB_PATH}"}
 
 ### Upsert incoming POST request to local DB ###
-
 @api.post("/db/batch_upsert", 
           dependencies=[Depends(_verify_api_key)], 
           include_in_schema=False)
+# Utilize pydantic data classes for data and type validation
 def batch_upsert(payload: BatchUpsertPayload):
     # Recreate SeriesProps
     props = SeriesProps(
@@ -447,21 +447,22 @@ def batch_upsert(payload: BatchUpsertPayload):
              "value": [p.value for p in points]}
         )
 
-    history_df = to_df(payload.history)
+    history_df  = to_df(payload.history)
     forecast_df = to_df(payload.forecast)
 
     # Upsert history + prune + forecast + metrics
     if not history_df.empty:
         db.write_history(history_df, input_tz="UTC")
-        db.prune_history(payload.history_prune_max_age)
+        db.prune_history(payload.properties.get("history_prune_age", "1Y"))
 
     run_id = None
     if not forecast_df.empty:
         run_id = db.write_forecast(
             forecast_df,
+            payload.properties.get("run_id", None),
             input_tz="UTC",
-            forecast_horizon=payload.forecast_horizon or len(forecast_df),
-            metrics=payload.metrics,
+            forecast_horizon=payload.properties.get("forecast_horizon", len(forecast_df)),
+            metrics=payload.metrics or {},
         )
 
     return {"status": "ok", "run_id": run_id}
@@ -491,5 +492,22 @@ if __name__ == "__main__":
                                                     "date"       : "2025-11-04"})
         assert response.status_code == 200
 
-    test_forecast()
+    def test_batch_upsert():
+        with open('test_data/test_payload.json', "r") as data:
+            json_payload = json.load(data)
+
+        print(json_payload.keys())
+
+        # Convert to pydantic data model manually. FastAPI does this automatically if POST endpoint is used.
+        payload = BatchUpsertPayload.model_validate(json_payload)
+
+        batch_upsert(payload)
+
+        # send JSON body and include API key header expected by the endpoint
+        # response = client.post("/db/batch_upsert", json=payload, headers={"Content-Type": "application/json",
+        #                                                                   "x-api-key": API_KEY})
+        # assert response.status_code == 200
+
+    # test_forecast()
     # test_latest_forecast()
+    test_batch_upsert()
