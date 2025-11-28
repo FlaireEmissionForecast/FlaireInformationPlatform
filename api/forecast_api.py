@@ -18,15 +18,21 @@ from db_manager import (ForecastDB,
                         TVPoint, 
                         BatchUpsertPayload)
 
+from dotenv import load_dotenv
+
+# Load variables found in .env to current environment
+load_dotenv()
+
 DB_PATH    = os.getenv("DB_PATH", os.path.abspath("./db/forecasts.sqlite"))
 DEFAULT_TZ = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
-API_KEY    = os.getenv("FORECAST_API_KEY", "test1234")  # set in env
+API_KEY    = os.environ["FORECAST_API_KEY"] # A secret key to authenticate API POST request. Throws an error if not found
 
 # Define path to test website
 index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
 
 api = FastAPI(title="Flip Forecast API", version="0.2.0")
 
+# CORS only affects browsers, not direct requests from backend, scripts, etc.
 api.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -41,7 +47,7 @@ engine = create_engine(f"sqlite:///{DB_PATH}", future=True, echo=False)
 
 def _verify_api_key(x_api_key: str = Header(None)):
     if x_api_key != API_KEY:
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=401, detail="Unauthorized request")
 
 def _check_db_exists():
     """Check whether the database file exists before any query."""
@@ -254,7 +260,7 @@ def forecast(
         try:
             history_offset = _parse_simple_delta(history_len)
         except Exception as e:
-            raise ValueError(f"Cannot parse history string '{history_len}' to Timedelta: {e}")
+            raise ValueError(f"Cannot parse history string '{history_len}' to Timedelta") from e
 
         # Calculate start datetimes for historical and forecast data
         forecast_start_utc = datetime.fromisoformat(run["forecast_start"])
@@ -419,7 +425,9 @@ def status():
     
     return {"message" : f"Database OK, found from: {DB_PATH}"}
 
+################################################
 ### Upsert incoming POST request to local DB ###
+################################################
 @api.post("/db/batch_upsert", 
           dependencies=[Depends(_verify_api_key)], 
           include_in_schema=False)
@@ -443,8 +451,8 @@ def batch_upsert(payload: BatchUpsertPayload):
         if not points:
             return pd.DataFrame(columns=["timestamp", "value"])
         return pd.DataFrame(
-            {"timestamp": [p.timestamp for p in points],
-             "value": [p.value for p in points]}
+            {"timestamp" : [p.timestamp for p in points],
+             "value"     : [p.value for p in points]}
         )
 
     history_df  = to_df(payload.history)
@@ -455,14 +463,12 @@ def batch_upsert(payload: BatchUpsertPayload):
         db.write_history(history_df, input_tz="UTC")
         db.prune_history(payload.properties.get("history_prune_age", "1Y"))
 
-    run_id = None
     if not forecast_df.empty:
         run_id = db.write_forecast(
             forecast_df,
             payload.properties.get("run_id", None),
-            input_tz="UTC",
             forecast_horizon=payload.properties.get("forecast_horizon", len(forecast_df)),
-            metrics=payload.metrics or {},
+            metrics=payload.metrics or {}
         )
 
     return {"status": "ok", "run_id": run_id}
@@ -478,10 +484,42 @@ async def favicon():
     return FileResponse("static/icons8-database-view-cute-color-96.png")
 
 if __name__ == "__main__":
-    # Use test client for offline debugging, required httpx package
+    # Use test client for offline debugging, requires httpx package
     from fastapi.testclient import TestClient
 
+    # Set path to test database
+    DB_PATH = os.getenv("DB_PATH", os.path.abspath("./test_db/forecasts.sqlite"))
+
+    # Set test API key
+    API_KEY = "test1234"
+
     client = TestClient(api)
+
+    def test_batch_upsert_direct(strip_run_id = False):
+        with open('test_data/test_payload.json', "r") as data:
+            json_payload = dict(json.load(data))
+
+        # Remove run ID from payload to se if batch upsert still functions as intended i.e. creates a run ID
+        if strip_run_id:
+            json_payload['properties'].update({"run_id" : ""})
+
+        # Convert to pydantic data model manually. FastAPI does this automatically if POST endpoint is used
+        payload = BatchUpsertPayload.model_validate(json_payload)
+
+        # Call upsert method directly
+        result = batch_upsert(payload)
+
+        # Check if result OK
+        assert result["status"] == "ok" and result["run_id"] is not None
+
+    def test_batch_upsert_post():
+        with open('test_data/test_payload.json', "r") as data:
+            json_payload = json.load(data)
+
+        # Call POST method for upsert, send JSON body and include API key header expected by the endpoint
+        response = client.post("/db/batch_upsert", json=json_payload, headers={"Content-Type": "application/json",
+                                                                               "x-api-key": API_KEY})
+        assert response.status_code == 200
 
     def test_latest_forecast():
         response = client.get("/forecast/latest", params={"series_key": "consumption_emissions"})
@@ -492,22 +530,24 @@ if __name__ == "__main__":
                                                     "date"       : "2025-11-04"})
         assert response.status_code == 200
 
-    def test_batch_upsert():
-        with open('test_data/test_payload.json', "r") as data:
-            json_payload = json.load(data)
+    try:
+        test_batch_upsert_direct(False)
+        test_batch_upsert_direct(True)
+        test_batch_upsert_post()
+        test_forecast()
+        test_latest_forecast()
+    except Exception as e:
+        raise RuntimeError(f"One or more database API tests failed") from e
+    finally:
+        # Remove created test database
+        import glob
 
-        print(json_payload.keys())
+        for p in glob.glob(f'{DB_PATH}*'):
+            if os.path.isfile(p):
+                os.remove(p)
 
-        # Convert to pydantic data model manually. FastAPI does this automatically if POST endpoint is used.
-        payload = BatchUpsertPayload.model_validate(json_payload)
+        # Remove test DB dir
+        print(DB_PATH.split("/")[-1])
+        os.removedirs(DB_PATH.removesuffix(DB_PATH.split("/")[-1]))
 
-        batch_upsert(payload)
-
-        # send JSON body and include API key header expected by the endpoint
-        # response = client.post("/db/batch_upsert", json=payload, headers={"Content-Type": "application/json",
-        #                                                                   "x-api-key": API_KEY})
-        # assert response.status_code == 200
-
-    # test_forecast()
-    # test_latest_forecast()
-    test_batch_upsert()
+    print("[DONE] All database and API tests passed successfully!")

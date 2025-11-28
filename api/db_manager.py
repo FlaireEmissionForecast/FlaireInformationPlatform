@@ -23,13 +23,8 @@ import requests
 # Series properties (no defaults; enforced)
 from dataclasses import dataclass
 
-DB_PATH    = os.getenv("DB_PATH", os.path.abspath("./local_db/forecasts.sqlite"))
-DEFAULT_TZ = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
-
-# For remote update through the API
-REMOTE_API_URL = os.getenv("REMOTE_API_URL", "http://localhost:8000/") # e.g. "https://my-tunnel.loca.lt/api/v1"
-REMOTE_API_KEY = os.getenv("REMOTE_API_KEY", "test1234")               # A secret key to authenticate API POST request
-SYNC_REMOTE    = os.getenv("SYNC_REMOTE", "1") == "1"                  # Boolean
+DB_PATH     = os.getenv("DB_PATH", os.path.abspath("./local_db/forecasts.sqlite"))
+DEFAULT_TZ  = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
 
 @dataclass(frozen=True)
 class SeriesProps:
@@ -112,9 +107,10 @@ class ForecastDB:
             Index("ix_obs_series_ts", "series_key", "timestamp"),
         )
 
+        # Init database schema
         self._init_db()
 
-        # Upsert series row
+        # Upsert series defined series properties
         with self.engine.begin() as conn:
             stmt = sqlite_insert(self.series).values(
                 series_key=props.series_key,
@@ -137,8 +133,78 @@ class ForecastDB:
             )
             conn.execute(stmt)
 
+    # Internal methods
+    def _init_db(self):
+        # Create the database schema (no-op if tables already exist)
+        self.metadata.create_all(self.engine)
+
+        with self.engine.begin() as conn:
+            # Enable WAL mode:
+            #   - Improves write concurrency
+            #   - Allows readers to proceed without being blocked by writers
+            #   - Better durability than the default rollback journal
+            conn.execute(text("PRAGMA journal_mode=WAL;"))
+
+            # Set WAL-appropriate sync mode:
+            #   - NORMAL still syncs the WAL but skips the extra F_FULLFSYNC
+            #   - Significantly faster while retaining crash-safe behavior for WAL
+            conn.execute(text("PRAGMA synchronous=NORMAL;"))
+
+            # Turn on actual FK enforcement:
+            #   - SQLite defines foreign keys in the schema but does not enforce them
+            #     unless this pragma is enabled
+            #   - Ensures no orphaned (runs which have a non-existent series_key) runs/observations can be inserted
+            conn.execute(text("PRAGMA foreign_keys=ON;"))
+
+
+    def _bulk_upsert(self, df: pd.DataFrame, kind: str, run_id: Optional[str]) -> int:
+        if kind not in ("history", "forecast"):
+            raise ValueError("kind must be 'history' or 'forecast'")
+        
+        if any(ts.tzinfo is None for ts in df["timestamp"]):
+            raise ValueError("All timestamps must be timezone-aware for UTC conversion")
+        
+        if df.empty:
+            print("[NOTE] No data to write to database")
+            return 0
+        
+        payload = [
+            {
+                "series_key" : self.props.series_key,
+                "kind"       : kind,
+                "timestamp"  : ts.astimezone(timezone.utc),
+                "value"      : float(val),
+                "run_id"     : run_id
+            }
+            for ts, val in zip(df["timestamp"], df["value"])
+        ]
+
+        with self.engine.begin() as conn:
+            # Transaction is committed, and Connection is released to the connection pool automatically by the begin() context manager
+            ins = sqlite_insert(self.observations).values(payload)
+            upd = ins.on_conflict_do_update(
+                index_elements=["series_key", "kind", "timestamp"],
+                set_={"value": ins.excluded.value, "run_id": ins.excluded.run_id},
+            )
+            conn.execute(upd)
+        return len(payload)
+    
+    def _parse_simple_delta(self, s : str):
+        YEARS  = 365
+        MONTHS = 30
+
+        s = s.strip().upper()
+
+        if s.endswith("Y"):
+            return pd.Timedelta(days=int(s[:-1]) * YEARS)
+
+        if s.endswith("M") and not s.endswith("MS"):
+            return pd.Timedelta(days=int(s[:-1]) * MONTHS)
+
+        return pd.Timedelta(s)
+
     # Public methods
-    def write_history(self, df: pd.Series | pd.DataFrame, *, input_tz: str = "UTC") -> int:
+    def write_history(self, df: pd.Series | pd.DataFrame, input_tz: str = "UTC") -> int:
         return self._bulk_upsert(df, kind="history", run_id=None)
     
     def prune_history(self, max_age: str = "52W") -> int:
@@ -192,8 +258,8 @@ class ForecastDB:
         run_id: str | None = None,
         metrics: Mapping[str, float | int | None] | None = None,
         forecast_horizon: int | None = None,
-        created_at_utc: datetime | None = None,
-        input_tz: str = "UTC",
+        created_at_utc: datetime | None = None
+        # input_tz: str = "UTC" # NOTE: Not used ATM, as everything is assumed as UTC inside the DB
     ) -> str:
         """Upsert forecast rows (latest wins) and optional metrics in one call; returns run_id."""
 
@@ -206,11 +272,12 @@ class ForecastDB:
         else:
             raise RuntimeError("Data object is not a Pandas series or DataFrame")
 
-        # Ensure run row (create if missing; update if exists)
+        # Ensure run row has a unique identifier
         if run_id is None:
             run_id = str(uuid.uuid4())
 
         try:
+            # Write forecast payload from forecast model
             with self.engine.begin() as conn:
                 stmt = sqlite_insert(self.runs).values(
                     run_id=run_id,
@@ -231,7 +298,7 @@ class ForecastDB:
 
             self._bulk_upsert(obj, kind="forecast", run_id=run_id)
         except Exception as e:
-            print("[ERROR] Local database update failed: {e}")
+            print(f"[ERROR] Local database update failed: {e}")
             return None
 
         if metrics is not None:
@@ -252,7 +319,7 @@ class ForecastDB:
         # Sanitize metrics
         metrics_clean = {str(k): clean(v) for k, v in dict(metrics).items()}
         
-        # Serialize to json
+        # Serialize to a json formatted string
         metrics_json_str = json.dumps(metrics_clean)
 
         with self.engine.begin() as conn:
@@ -264,49 +331,3 @@ class ForecastDB:
                 set_={"metrics_json": metrics_json_str}
             )
             conn.execute(stmt)
-
-    # Internal methods
-    def _init_db(self):
-        self.metadata.create_all(self.engine)
-        with self.engine.begin() as conn:
-            conn.execute(text("PRAGMA journal_mode=WAL;"))
-            conn.execute(text("PRAGMA synchronous=NORMAL;"))
-            conn.execute(text("PRAGMA foreign_keys=ON;"))
-
-    def _bulk_upsert(self, df: pd.DataFrame, *, kind: str, run_id: Optional[str]) -> int:
-        if kind not in ("history", "forecast"):
-            raise ValueError("kind must be 'history' or 'forecast'.")
-        if df.empty:
-            return 0
-        payload = [
-            {
-                "series_key": self.props.series_key,
-                "kind": kind,
-                "timestamp": ts.astimezone(timezone.utc),
-                "value": float(val),
-                "run_id": run_id,
-            }
-            for ts, val in zip(df["timestamp"], df["value"])
-        ]
-        with self.engine.begin() as conn:
-            ins = sqlite_insert(self.observations).values(payload)
-            upd = ins.on_conflict_do_update(
-                index_elements=["series_key", "kind", "timestamp"],
-                set_={"value": ins.excluded.value, "run_id": ins.excluded.run_id},
-            )
-            conn.execute(upd)
-        return len(payload)
-    
-    def _parse_simple_delta(self, s : str):
-        YEARS  = 365
-        MONTHS = 30
-
-        s = s.strip().upper()
-
-        if s.endswith("Y"):
-            return pd.Timedelta(days=int(s[:-1]) * YEARS)
-
-        if s.endswith("M") and not s.endswith("MS"):
-            return pd.Timedelta(days=int(s[:-1]) * MONTHS)
-
-        return pd.Timedelta(s)
