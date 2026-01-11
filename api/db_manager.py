@@ -28,24 +28,24 @@ DEFAULT_TZ  = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
 
 @dataclass(frozen=True)
 class SeriesProps:
-    series_key: str        # E.g. "consumption_emissions"
-    name: str              # E.g. "Consumption emissions"
-    unit: str              # E.g. "gCO2eq"
-    region: str            # E.g. "FI"
-    source: str            # E.g. "Forecast model"
-    description: str       # Brief data description that could be displayed in the front-end
-    frequency: str         # Pandas offset alias, e.g. "1h"
+    series_key  : str   # E.g. "consumption_emissions"
+    name        : dict  # E.g. {"EN": "Consumption emissions", "FI": "Sähkönkulutuksen päästöt"}
+    unit        : dict  # E.g. {"EN": "gCO2eq", "FI": "gCO2ekv"}
+    region      : str   # E.g. "FI"
+    source      : dict  # E.g. {"EN": "Forecast model", "FI": "Ennustemalli"}
+    description : dict  # Brief data description that could be displayed in the front-end in both EN and FI
+    frequency   : str   # Pandas offset alias, e.g. "1h"
 
 class TVPoint(BaseModel):
-    timestamp: datetime
-    value: float
+    timestamp : datetime
+    value     : float
 
 class BatchUpsertPayload(BaseModel):
-    series: SeriesProps
-    properties: Dict[str, Any] = {}
-    history: List[TVPoint]
-    forecast: List[TVPoint]
-    metrics: Dict[str, Any] = {}
+    series     : SeriesProps
+    properties : Dict[str, Any] = {}
+    history    : List[TVPoint]
+    forecast   : List[TVPoint]
+    metrics    : Dict[str, Any] = {}
 
 class ForecastDB:
     """
@@ -68,11 +68,15 @@ class ForecastDB:
         self.series = Table(
             "series", self.metadata,
             Column("series_key", String, primary_key=True),
-            Column("name", String, nullable=False),
-            Column("unit", String, nullable=False),
+
+            # Multilingual fields
+            Column("name", JSON, nullable=False),
+            Column("unit", JSON, nullable=False),
+            Column("source", JSON, nullable=False),
+            Column("description", JSON, nullable=False),
+
+            # Non-multilingual fields
             Column("region", String, nullable=False),
-            Column("source", String, nullable=False),
-            Column("description", String, nullable=False),
             Column("frequency", String, nullable=False),
         )
 
