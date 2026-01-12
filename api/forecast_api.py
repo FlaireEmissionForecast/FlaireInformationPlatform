@@ -147,7 +147,7 @@ def _parse_simple_delta(s : str):
 
     return pd.Timedelta(s)
 
-def _get_history_data_by_datetime_range(conn, series_key, history_start, forecast_start):
+def _get_history_data_by_datetime_range(conn, series_key, history_start, history_end):
     # Fetch historical observations for the requested history window
     return conn.execute(
             text("""
@@ -156,7 +156,7 @@ def _get_history_data_by_datetime_range(conn, series_key, history_start, forecas
                 AND timestamp >= :a AND timestamp < :b
                 ORDER BY timestamp
                 """),
-            {"k": series_key, "a": history_start, "b": forecast_start},
+            {"k": series_key, "a": history_start, "b": history_end},
         ).all()
 
 def _get_forecast_data_by_run_id(conn, series_key, run_id):
@@ -198,6 +198,25 @@ def _get_forecast_payload(series, run, hist_rows, fc_rows, metrics, tzinfo, run_
         "metrics" : metrics or {},
     }
 
+def _get_history_payload(series, hist_rows, tzinfo):
+    """
+    Build the standard history payload dict used by the endpoints.
+    """
+
+    return {
+        "metadata": {
+            "name"        : _to_json(series["name"]),
+            "unit"        : _to_json(series["unit"]),
+            "source"      : _to_json(series["source"]),
+            "description" : _to_json(series["description"]),
+            "region"      : series["region"],
+            "frequency"   : series["frequency"],
+        },
+        "data": {
+            "history"  : _iso_map(hist_rows, tzinfo),
+        },
+    }
+
 ############################
 ### API Endpoint Methods ###
 ############################
@@ -232,7 +251,7 @@ def forecast(
                 {"r": run_id, "k": series_key},
             ).mappings().first()
         elif date:
-            # Conver timestamp ot database compatible format
+            # Conver timestamp to database compatible format
             ts = _convert_local_ts_to_utc(date, tzinfo)
 
             # Use the whole day (00:00:00 .. < next day 00:00:00) in requested tz
@@ -349,7 +368,7 @@ def latest_forecast(
         history_start_utc = forecast_start_utc - history_offset
 
         # Get historical and forecast data from the DB with date range and run ID
-        hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)        
+        hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)
         fc_rows   = _get_forecast_data_by_run_id(conn, series_key, run_id)
 
         metrics = {}
@@ -363,11 +382,42 @@ def latest_forecast(
     return payload
 
 @api.get("/history")
-def history():
+def history(
+    series_key  : str = Query(..., description="Always required, e.g. 'consumption_emissions'"),
+    date_from   : str = Query(..., description="The date beginning form which to fetch historical data (e.g. '2026-01-02')"),
+    date_to     : str = Query(..., description="The non-inclusive date until which historical data is fetched (e.g. '2025-06-15')"),
+    tz          : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
+    ):
     """
     Returns historical observational data if available in the requested period.
     """
-    return {"message" : "Endpoint for historical data not yet available"}
+    # Check that the database exists, inform user if it does not
+    warn = _check_db_exists()
+    if warn:
+        return warn
+    
+    # Prepare timezone info
+    tzinfo = ZoneInfo(tz)
+
+    # Conver timestamp to database compatible format
+    from_utc = _convert_local_ts_to_utc(date_from, tzinfo)
+    to_utc   = _convert_local_ts_to_utc(date_to,   tzinfo)
+
+    # Use the whole day (00:00:00 .. < next day 00:00:00) in requested tz
+    from_date_utc = from_utc.isoformat()
+    to_date_utc   = to_utc.isoformat()
+
+    with engine.begin() as conn:
+        # Get series metadata
+        series = conn.execute(text("SELECT * FROM series WHERE series_key=:k"), {"k": series_key}).mappings().first()
+        if not series:
+            return {"error": f"series_key '{series_key}' not found"}
+        
+        # Get historical data for the requested date range
+        hist_rows = _get_history_data_by_datetime_range(conn, series_key, from_date_utc, to_date_utc)
+
+    payload = _get_history_payload(series, hist_rows, tzinfo)
+    return payload
 
 @api.get("/info")
 def info():
@@ -556,6 +606,12 @@ if __name__ == "__main__":
                                                     "date"       : "2025-11-04"})
         assert response.status_code == 200
 
+    def test_history():
+        response = client.get("/history", params={"series_key" : "consumption_emissions",
+                                                  "date_from"  : "2025-10-28",
+                                                  "date_to"    : "2025-11-03"})
+        assert response.status_code == 200
+
     def test_info():
         response = client.get("/info")
         assert response.status_code == 200
@@ -566,6 +622,7 @@ if __name__ == "__main__":
         test_batch_upsert_post()
         test_latest_forecast()
         test_forecast()
+        test_history()
         test_info()
     except Exception as e:
         raise RuntimeError(f"One or more database API tests failed") from e
