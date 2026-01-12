@@ -45,6 +45,14 @@ api.add_middleware(
 
 engine = create_engine(f"sqlite:///{DB_PATH}", future=True, echo=False)
 
+def _to_json(data):
+    if isinstance(data, str):
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError:
+            return data
+    return data
+
 def _verify_api_key(x_api_key: str = Header(None)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Unauthorized request")
@@ -173,11 +181,11 @@ def _get_forecast_payload(series, run, hist_rows, fc_rows, metrics, tzinfo, run_
 
     return {
         "metadata": {
-            "name"           : series["name"],
-            "unit"           : series["unit"],
+            "name"           : _to_json(series["name"]),
+            "unit"           : _to_json(series["unit"]),
+            "source"         : _to_json(series["source"]),
+            "description"    : _to_json(series["description"]),
             "region"         : series["region"],
-            "source"         : series["source"],
-            "description"    : series["description"],
             "frequency"      : series["frequency"],
             "run_id"         : run_id or run.get("run_id"),
             "forecast_start" : forecast_start_tz.replace(microsecond=0),
@@ -370,8 +378,21 @@ def info():
     if warn:
         return warn
     with engine.begin() as conn:
-        # Get all available series names
-        series_list = conn.execute(text("SELECT * FROM series")).mappings().all()
+        # Get all available series
+        raw_series = conn.execute(text("SELECT * FROM series")).mappings().all()
+
+        series_list = []
+        for s in raw_series:
+            # Convert possible JSON fields to dicts
+            series_list.append({
+                "series_key":  s["series_key"],
+                "name":        _to_json(s["name"]),
+                "unit":        _to_json(s["unit"]),
+                "source":      _to_json(s["source"]),
+                "description": _to_json(s["description"]),
+                "region":      s["region"],
+                "frequency":   s["frequency"],
+            })
 
         # Get number of runs per series
         runs_list = []
@@ -381,6 +402,7 @@ def info():
                 text("SELECT COUNT(*) AS run_count FROM runs WHERE series_key=:k"),
                 {"k": s["series_key"]},
                 ).mappings().first()
+            
             runs_list.append({
                 "series_key": s["series_key"],
                 "run_count" : run_count["run_count"] if run_count else 0,
@@ -398,6 +420,7 @@ def info():
                     """),
                 {"k": s["series_key"]},
             ).mappings().first()
+
             hist_list.append({
                 "series_key"    : s["series_key"],
                 "history_start" : hist_info["start_time"],
@@ -533,12 +556,17 @@ if __name__ == "__main__":
                                                     "date"       : "2025-11-04"})
         assert response.status_code == 200
 
+    def test_info():
+        response = client.get("/info")
+        assert response.status_code == 200
+
     try:
         test_batch_upsert_direct(False)
         test_batch_upsert_direct(True)
         test_batch_upsert_post()
         test_latest_forecast()
         test_forecast()
+        test_info()
     except Exception as e:
         raise RuntimeError(f"One or more database API tests failed") from e
     finally:
