@@ -399,13 +399,9 @@ def history(
     # Prepare timezone info
     tzinfo = ZoneInfo(tz)
 
-    # Conver timestamp to database compatible format
-    from_utc = _convert_local_ts_to_utc(date_from, tzinfo)
-    to_utc   = _convert_local_ts_to_utc(date_to,   tzinfo)
-
-    # Use the whole day (00:00:00 .. < next day 00:00:00) in requested tz
-    from_date_utc = from_utc.isoformat()
-    to_date_utc   = to_utc.isoformat()
+    # Conver timestamp to database compatible datetime format
+    from_dt_utc = _convert_local_ts_to_utc(date_from, tzinfo)
+    to_dt_utc   = _convert_local_ts_to_utc(date_to,   tzinfo)
 
     with engine.begin() as conn:
         # Get series metadata
@@ -414,7 +410,7 @@ def history(
             return {"error": f"series_key '{series_key}' not found"}
         
         # Get historical data for the requested date range
-        hist_rows = _get_history_data_by_datetime_range(conn, series_key, from_date_utc, to_date_utc)
+        hist_rows = _get_history_data_by_datetime_range(conn, series_key, from_dt_utc, to_dt_utc)
 
     payload = _get_history_payload(series, hist_rows, tzinfo)
     return payload
