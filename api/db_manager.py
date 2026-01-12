@@ -24,8 +24,7 @@ DB_PATH     = os.getenv("DB_PATH", os.path.abspath("./local_db/forecasts.sqlite"
 DEFAULT_TZ  = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
 
 # Updated to Pydantic data model for request validation
-@dataclass(frozen=True)
-class SeriesProps:
+class SeriesProps(BaseModel):
     series_key  : str             # E.g. "consumption_emissions"
     name        : Dict[str, str]  # E.g. {"EN": "Consumption emissions", "FI": "Sähkönkulutuksen päästöt"}
     unit        : Dict[str, str]  # E.g. {"EN": "gCO2eq", "FI": "gCO2ekv"}
