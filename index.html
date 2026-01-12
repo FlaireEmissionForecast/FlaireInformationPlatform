@@ -173,6 +173,8 @@
   const themeToggleButton = document.getElementById('theme-toggle');
   const historySelect = document.getElementById('history-select');
   const seriesButtonsContainer = document.getElementById('series-buttons');
+  const DEFAULT_TZ = "Europe/Helsinki";
+  const DEFAULT_LANG = "EN";
 
   // API config (adjust base URL if needed)
   let API_BASE = ""; // if site served from same host as API
@@ -181,13 +183,18 @@
   }
 
   let currentSeriesKey = "consumption_emissions"; // default; will be updated from /info
-  const DEFAULT_TZ = "Europe/Helsinki";
 
   // Default to light theme
   let currentTheme = 'light';
 
   function formatDate(date) {
     return date.toISOString().split('T')[0];
+  }
+
+  function getLangVer(field, lang = DEFAULT_LANG) {
+    if (!field) return "";
+    if (typeof field === "string") return field; // backward compatibility
+    return field[lang] || field["EN"] || Object.values(field)[0] || "";
   }
 
   function buildLayout(title, forecastStart, payloadUnit) {
@@ -356,7 +363,7 @@
 
     infoPayload.series.forEach((s, idx) => {
       const btn = document.createElement("button");
-      btn.textContent = s.name;
+      btn.textContent = getLangVer(s.name);
       btn.className = "series-button";
       btn.dataset.seriesKey = s.series_key;
 
@@ -438,7 +445,7 @@
       const traces = makeTracesFromPayload(payload);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = forecastStart ? forecastStart.split('T')[0] : '';
-      const seriesName = (payload.metadata?.name || "forecast").toLowerCase();
+      const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
       const title = `Forecast of ${seriesName} for ${titleDate}`;
 
       const payloadUnit = payload.metadata?.unit;
@@ -471,10 +478,10 @@
       const traces = makeTracesFromPayload(payload);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = forecastStart ? forecastStart.split('T')[0] : '';
-      const seriesName = (payload.metadata?.name || "forecast").toLowerCase();
+      const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
       const title = `Forecast of ${seriesName} from: ${titleDate}`;
 
-      const payloadUnit = payload.metadata?.unit;
+      const payloadUnit = getLangVer(payload.metadata?.unit);
       const layout = buildLayout(title, forecastStart, payloadUnit);
       const config = { responsive: true, displaylogo: false };
       Plotly.newPlot(chartDiv, traces, layout, config);
