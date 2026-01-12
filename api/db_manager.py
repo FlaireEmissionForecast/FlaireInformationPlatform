@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Mapping, Optional, Dict, List, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import math
 import os
 import uuid
@@ -16,9 +16,6 @@ from sqlalchemy import (
     )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
-
-# Series properties (no defaults; enforced)
-from dataclasses import dataclass
 
 DB_PATH     = os.getenv("DB_PATH", os.path.abspath("./local_db/forecasts.sqlite"))
 DEFAULT_TZ  = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
@@ -33,16 +30,24 @@ class SeriesProps(BaseModel):
     description : Dict[str, str]  # Brief data description that could be displayed in the front-end in both EN and FI
     frequency   : str             # Pandas offset alias, e.g. "1h"
 
+    model_config = {
+        "frozen": True
+    }
+
 class TVPoint(BaseModel):
     timestamp : datetime
     value     : float
 
+    model_config = {
+        "frozen": True
+    }
+
 class BatchUpsertPayload(BaseModel):
     series     : SeriesProps
-    properties : Dict[str, Any] = {}
+    properties : Dict[str, Any] = Field(default_factory=dict)
     history    : List[TVPoint]
     forecast   : List[TVPoint]
-    metrics    : Dict[str, Any] = {}
+    metrics    : Dict[str, Any] = Field(default_factory=dict)
 
 class ForecastDB:
     """

@@ -490,6 +490,9 @@ if __name__ == "__main__":
     # Set path to test database
     DB_PATH = os.getenv("DB_PATH", os.path.abspath("./test_db/forecasts.sqlite"))
 
+    # Recreate module-level engine so it uses the test DB_PATH
+    engine = create_engine(f"sqlite:///{DB_PATH}", future=True, echo=False)
+
     # Set test API key
     API_KEY = "test1234"
 
@@ -534,8 +537,8 @@ if __name__ == "__main__":
         test_batch_upsert_direct(False)
         test_batch_upsert_direct(True)
         test_batch_upsert_post()
-        test_forecast()
         test_latest_forecast()
+        test_forecast()
     except Exception as e:
         raise RuntimeError(f"One or more database API tests failed") from e
     finally:
