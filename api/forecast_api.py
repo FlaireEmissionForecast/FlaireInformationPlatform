@@ -286,7 +286,7 @@ def latest_forecast(
     history_len: str | None = Query(default="1W", description="Desired amount of history to query with the forecast in Pandas offset alias format (e.g. '1W' for one week)"),
     tz         : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
     run_id     : str | None = Query(default=None, description="Forecast run UUID for requesting a specific run results")
-):
+    ):
     """
     Returns latest available forecast with defined amount of historical data.
     """

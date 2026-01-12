@@ -9,16 +9,13 @@ import os
 import uuid
 import json
 
-import numpy as np
 import pandas as pd
-from pandas.tseries.frequencies import to_offset
 from sqlalchemy import (
     create_engine, MetaData, Table, Column, String, Integer, DateTime, Float,
     ForeignKey, JSON, text, UniqueConstraint, Index
-)
+    )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
-import requests
 
 # Series properties (no defaults; enforced)
 from dataclasses import dataclass
@@ -26,15 +23,16 @@ from dataclasses import dataclass
 DB_PATH     = os.getenv("DB_PATH", os.path.abspath("./local_db/forecasts.sqlite"))
 DEFAULT_TZ  = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
 
+# Updated to Pydantic data model for request validation
 @dataclass(frozen=True)
 class SeriesProps:
-    series_key  : str   # E.g. "consumption_emissions"
-    name        : dict  # E.g. {"EN": "Consumption emissions", "FI": "Sähkönkulutuksen päästöt"}
-    unit        : dict  # E.g. {"EN": "gCO2eq", "FI": "gCO2ekv"}
-    region      : str   # E.g. "FI"
-    source      : dict  # E.g. {"EN": "Forecast model", "FI": "Ennustemalli"}
-    description : dict  # Brief data description that could be displayed in the front-end in both EN and FI
-    frequency   : str   # Pandas offset alias, e.g. "1h"
+    series_key  : str             # E.g. "consumption_emissions"
+    name        : Dict[str, str]  # E.g. {"EN": "Consumption emissions", "FI": "Sähkönkulutuksen päästöt"}
+    unit        : Dict[str, str]  # E.g. {"EN": "gCO2eq", "FI": "gCO2ekv"}
+    region      : str             # E.g. "FI"
+    source      : Dict[str, str]  # E.g. {"EN": "Forecast model", "FI": "Ennustemalli"}
+    description : Dict[str, str]  # Brief data description that could be displayed in the front-end in both EN and FI
+    frequency   : str             # Pandas offset alias, e.g. "1h"
 
 class TVPoint(BaseModel):
     timestamp : datetime
@@ -49,6 +47,7 @@ class BatchUpsertPayload(BaseModel):
 
 class ForecastDB:
     """
+    Forecast database manager with features:
     - schema creation (WAL, indexes)
     - strict validation (uniform freq, no NaN/inf)
     - UTC storage, round to 2 decimals

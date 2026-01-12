@@ -1,11 +1,23 @@
 {
     "series": {
         "series_key": "consumption_emissions",
-        "name": "Consumption emissions",
-        "unit": "gCO2eq",
+        "name": {
+            "EN": "Consumption emissions",
+            "FI": "Sähkönkulutuksen päästöt"
+        },
+        "unit": {
+            "EN": "gCO2eq",
+            "FI": "gCO2ekv"
+        },
         "region": "FI",
-        "source": "Forecast model",
-        "description": "Historical and forecasted emissions of electricity consumption as grams of carbon dioxide equivalent emissions per kilowatt-hour of consumed electrical energy. The emission take imports and exports into account as defined by Fingrid methodology.",
+        "source": {
+            "EN": "Forecast model",
+            "FI": "Ennustemalli"
+        },
+        "description": {
+            "EN": "Historical and forecasted hourly emissions of electricity consumption as grams of carbon dioxide equivalent emissions per kilowatt-hour of consumed electrical energy. The emission take imports and exports into account as defined by Fingrid methodology.",
+            "FI": "Sähkönkulutuksen historialliset ja ennustetut tuntikohtaiset päästöt hiilidioksidiekvivalenttigrammoina kulutettua kilowattituntia kohden. Päästölaskenta huomioi sähkön tuonnin ja viennin Fingridin määrittelemän metodologian mukaisesti."
+        },
         "frequency": "h"
     },
     "properties": {
