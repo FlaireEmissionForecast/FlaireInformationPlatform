@@ -30,13 +30,14 @@ API_KEY    = os.environ["FORECAST_API_KEY"] # A secret key to authenticate API P
 # Define path to test website
 index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
 
-api = FastAPI(title="Flip Forecast API", version="0.2.0")
+api = FastAPI(title="Flip Forecast API", version="0.3.0")
 
 # CORS only affects browsers, not direct requests from backend, scripts, etc.
 api.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://flaireemissionforecast.github.io",
+        "https://flipapi.net",
         "http://localhost"
     ],
     allow_methods=["GET", "OPTIONS"],
