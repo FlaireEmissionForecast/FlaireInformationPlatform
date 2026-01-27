@@ -10,6 +10,11 @@
   <meta name="msapplication-TileImage" content="https://flaire.fi/wp-content/uploads/2024/01/cropped-flaire-favicon-270x270.png" />
   <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
   <style>
+    /* Fluid typography for headings */
+    :root {
+      --heading-fluid: clamp(28px, 4.5vw, 36px);
+    }
+
     /* Default light theme styles */
     body {
       background-color: #f4f4f9;
@@ -20,7 +25,7 @@
       align-items: center;
       margin: 0;
       min-height: 100vh;
-      padding: 20px;
+      padding: 20px 10px 0 10px;
       box-sizing: border-box;
       transition: background-color 0.2s, color 0.2s;
       position: relative;
@@ -41,7 +46,7 @@
       position: absolute;
       left: 20px;
       top: 20px;
-      height: clamp(30px, 5vw, 50px);
+      height: clamp(35px, 5vw, 50px);
       width: auto;
       transition: filter 0.2s;
     }
@@ -57,8 +62,15 @@
 
     h1 {
       color: #000;
-      font-weight: 300;
+      font-weight: 350;
       margin: 0;
+      font-size: var(--heading-fluid);
+    }
+
+    h2 {
+      font-weight: 350;
+      margin: 0;
+      font-size: max(var(--heading-fluid) - 12px, 20px);
     }
 
     .controls {
@@ -98,6 +110,11 @@
       background-color: #fff;
       cursor: pointer;
       font-size: 14px;
+
+      /* Text formatting Logic */
+      max-width: 240px;
+      white-space: wrap;
+      vertical-align: middle;
     }
 
     .series-button.active {
@@ -118,10 +135,16 @@
       border-color: #4a90e2;
     }
 
+    #chart-title {
+      margin: 0 0 15px 0;
+      font-weight: 350;
+      text-align: center;
+    }
+
     #chart-container {
-      width: 95%;
-      max-width: 1200px;
-      height: 60vh;
+      width: 100%;
+      max-width: 850px;
+      height: clamp(340px, 50vh, 600px);
     }
 
     /* Dark theme styles */
@@ -139,6 +162,28 @@
       color: white;
       border: 1px solid #555;
     }
+
+    @media (max-width: 700px) {
+      .header-container {
+        flex-direction: column;
+      }
+
+      .logo {
+        position: static;
+        margin-bottom: 8px;
+      }
+
+      .series-buttons {
+        gap: 10px;
+      }
+
+      .series-button {
+        max-width: 140px; 
+        padding: 4px 8px;
+        font-size: 14px;
+      }
+    }
+
   </style>
 </head>
 <body class="light-theme">
@@ -147,7 +192,7 @@
 
   <!-- Header container for title -->
   <div class="header-container">
-    <h1>Flaire Information Platform</h1>
+    <h1>Flaire Information Platform Demo</h1>
   </div>
 
   <div class="controls">
@@ -162,9 +207,21 @@
 
   <div id="series-buttons" class="series-buttons"></div>
 
+  <div class="chart-title-container">
+    <h2 id="chart-title"></h2>
+  </div>
+
   <div id="chart-container">
     <div id="chart" style="width:100%;height:100%;"></div>
   </div>
+
+  <div class="y-scale-button">
+    <label>
+      <input type="checkbox" id="yAutoscaleToggle">
+      Autoscale Y-axis
+    </label>
+  </div>
+
   <script>
   const chartDiv = document.getElementById('chart');
   const forecastDateInput = document.getElementById('forecast-date');
@@ -175,6 +232,10 @@
   const seriesButtonsContainer = document.getElementById('series-buttons');
   const DEFAULT_TZ = "Europe/Helsinki";
   const DEFAULT_LANG = "EN";
+
+  const yAutoscaleToggle = document.getElementById("yAutoscaleToggle");
+  let yAutoscale = false;
+  yAutoscaleToggle.checked = false;
 
   // API config (adjust base URL if needed)
   let API_BASE = ""; // if site served from same host as API
@@ -191,13 +252,27 @@
     return date.toISOString().split('T')[0];
   }
 
+  function formatPrettyDate(dateInput) {
+    if (!dateInput) return "";
+    
+    // Use only the date part (YYYY-MM-DD) to avoid timezone shifting
+    const datePart = typeof dateInput === 'string' ? dateInput.split('T')[0] : dateInput;
+    
+    return new Date(datePart).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone: 'UTC' // Ensures the date doesn't "jump" a day due to local time
+    });
+  }
+
   function getLangVer(field, lang = DEFAULT_LANG) {
     if (!field) return "";
     if (typeof field === "string") return field; // backward compatibility
     return field[lang] || field["EN"] || Object.values(field)[0] || "";
   }
 
-  function buildLayout(title, forecastStart, payloadUnit) {
+  function buildLayout(forecastStart, payloadUnit) {
     const lightThemeGridColor = '#cccccc';
 
     const shapes = [];
@@ -219,15 +294,17 @@
 
     return {
       template: currentTheme === 'dark' ? 'plotly_dark' : 'plotly_white',
-      title: title,
       paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: 'rgba(0,0,0,0)',
 
       hovermode: "x unified",
 
       legend: {
-        x: 0.91,
-        y: 1.25,
+        orientation: 'h',
+        x: 0.5,
+        y: 1.15,
+        xanchor: 'center',
+        yanchor: 'top',
         bgcolor:
           currentTheme === "dark"
             ? "rgba(0,0,0,0.4)"
@@ -237,26 +314,27 @@
             ? "rgba(255,255,255,0.2)"
             : "rgba(0,0,0,0.2)",
         borderwidth: 1,
-        font: { size: 12 }
+        font: { size: 12 },
+        traceorder: 'normal'
       },
 
       xaxis: {
         title: "Time",
         rangeslider: { visible: true },
-        // tickformat: "%Y-%m-%d %H:%M",
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
       },
       yaxis: {
+        autorange: true,
         title: payloadUnit || "Value",
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
       },
-      margin: { l: 50, r: 20, t: 60, b: 70 },
+      margin: { l: 50, r: 40, t: 0, b: 40 },
       autosize: true,
       shapes: shapes
     };
   }
 
-  function makeTracesFromPayload(payload) {
+  function makeTracesFromPayload(payload, yAutoscale) {
     const data = payload.data || {};
     const history = data.history || {};
     const forecast = data.forecast || {};
@@ -275,14 +353,45 @@
       historyEntries.push(firstForecast);
     }
 
+    // If autoscale is disabled, return simple traces without dynamic fill baseline
+    if (!yAutoscale) {
+      const historyTrace =  {
+          x: historyEntries.map(e => e[0]),
+          y: historyEntries.map(e => e[1]),
+          type: "scatter",
+          mode: "lines",
+          name: "History",
+          legendrank: 1,
+          showlegend: true,
+          fill: "tozeroy",
+          fillcolor: "rgba(74,144,226,0.1)",
+          line: { color: "rgb(74,144,226)", width: 3, shape: "spline" }
+        };
+       const forecastTrace = {
+          x: forecastEntries.map(e => e[0]),
+          y: forecastEntries.map(e => e[1]),
+          type: "scatter",
+          mode: "lines",
+          name: "Forecast",
+          legendrank: 2,
+          showlegend: true,
+          fill: "tozeroy",
+          fillcolor: "rgba(255,140,0,0.1)",
+          line: { color: "rgb(255,140,0)", width: 3, shape: "spline" }
+        };
+      return [historyTrace, forecastTrace];
+    }
+
     const historyTrace = {
       x: historyEntries.map(e => e[0]),
       y: historyEntries.map(e => e[1]),
       type: "scatter",
       mode: "lines",
       name: "History",
+      legendrank: 1,
+      showlegend: true,
       meta: { unit: unit },
-      fill: 'tozeroy',
+      fill: 'tonexty',
       fillcolor: 'rgba(74, 144, 226, 0.1)',
       line: {
         color: 'rgb(74, 144, 226)', // Light blue
@@ -298,8 +407,10 @@
       type: "scatter",
       mode: "lines",
       name: "Forecast",
+      legendrank: 2,
+      showlegend: true,
       meta: { unit: unit },
-      fill: 'tozeroy',
+      fill: 'tonexty',
       fillcolor: 'rgba(255, 140, 0, 0.1)',
       line: {
         color: 'rgb(255, 140, 0)', // strong orange
@@ -310,7 +421,38 @@
       hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>',
     };
 
-    return [historyTrace, forecastTrace];
+    // Determine y-axis baseline for dynamic fill baseline
+    const allY = [
+      ...historyEntries.map(e => e[1]),
+      ...forecastEntries.map(e => e[1])
+    ];
+
+    const yMin = Math.min(...allY);
+    const yMax = Math.max(...allY);
+    // Set the baseline to next lower integer below yMin for better visual consistency
+    const baseline = Math.floor(yMin - 1);
+
+    const historyBaseline = {
+      x: historyEntries.map(e => e[0]),
+      y: Array(historyEntries.length).fill(baseline),
+      type: "scatter",
+      mode: "lines",
+      showlegend: false,
+      line: { width: 0 },
+      hoverinfo: "skip"
+    };
+
+    const forecastBaseline = {
+      x: forecastEntries.map(e => e[0]),
+      y: Array(forecastEntries.length).fill(baseline),
+      type: "scatter",
+      mode: "lines",
+      showlegend: false,
+      line: { width: 0 },
+      hoverinfo: "skip"
+    };
+
+    return [historyBaseline, historyTrace, forecastBaseline, forecastTrace];
   }
 
   function initHistoryOptionsFromInfo(infoPayload, seriesKey, preserveSelection = false) {
@@ -321,7 +463,8 @@
     const end   = new Date(hist.history_end);
 
     const totalDays = Math.max(1, Math.floor((end - start) / (1000 * 60 * 60 * 24)));
-    const maxWeeks = Math.floor(totalDays / 7);
+    // const maxWeeks = Math.floor(totalDays / 7);
+    const maxWeeks = 4; // limit to 4 weeks for usability
 
     const previousValue = preserveSelection ? historySelect.value : null;
 
@@ -350,8 +493,8 @@
       historySelect.value = previousValue;
     } else {
       // default selection
-      if (historySelect.querySelector('option[value="7D"]')) {
-        historySelect.value = "7D";
+      if (historySelect.querySelector('option[value="1D"]')) {
+        historySelect.value = "1D";
       } else if (historySelect.options.length > 0) {
         historySelect.value = historySelect.options[historySelect.options.length - 1].value;
       }
@@ -363,7 +506,10 @@
 
     infoPayload.series.forEach((s, idx) => {
       const btn = document.createElement("button");
-      btn.textContent = getLangVer(s.name);
+      const fullName = getLangVer(s.name);
+
+      btn.textContent = fullName
+      btn.title = fullName
       btn.className = "series-button";
       btn.dataset.seriesKey = s.series_key;
 
@@ -442,16 +588,17 @@
         return;
       }
 
-      const traces = makeTracesFromPayload(payload);
+      const traces = makeTracesFromPayload(payload, yAutoscale);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
-      const titleDate = forecastStart ? forecastStart.split('T')[0] : '';
+      const titleDate = formatPrettyDate(forecastStart);
       const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
-      const title = `Forecast of ${seriesName} for ${titleDate}`;
+      const title = `${seriesName.charAt(0).toUpperCase() + seriesName.slice(1)} for ${titleDate}`;
+      document.getElementById("chart-title").textContent = title;
 
       const payloadUnit = payload.metadata?.unit;
-      const layout = buildLayout(title, forecastStart, payloadUnit);
+      const layout = buildLayout(forecastStart, payloadUnit);
       const config = { responsive: true, displaylogo: false };
-      Plotly.newPlot(chartDiv, traces, layout, config);
+      Plotly.react(chartDiv, traces, layout, config);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load forecast data. ${error.message}</p>`;
       console.error("Error loading forecast by date:", error);
@@ -475,16 +622,17 @@
         return;
       }
 
-      const traces = makeTracesFromPayload(payload);
+      const traces = makeTracesFromPayload(payload, yAutoscale);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
-      const titleDate = forecastStart ? forecastStart.split('T')[0] : '';
+      const titleDate = formatPrettyDate(forecastStart);
       const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
-      const title = `Forecast of ${seriesName} from: ${titleDate}`;
+      const title = `${seriesName.charAt(0).toUpperCase() + seriesName.slice(1)} for ${titleDate}`
+      document.getElementById("chart-title").textContent = title;
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(title, forecastStart, payloadUnit);
+      const layout = buildLayout(forecastStart, payloadUnit);
       const config = { responsive: true, displaylogo: false };
-      Plotly.newPlot(chartDiv, traces, layout, config);
+      Plotly.react(chartDiv, traces, layout, config);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load latest forecast. ${error.message}</p>`;
       console.error("Error loading latest forecast:", error);
@@ -517,6 +665,11 @@
   themeToggleButton.addEventListener('click', toggleTheme);
 
   historySelect.addEventListener('change', () => {
+    loadLatestForecast();
+  });
+
+  yAutoscaleToggle.addEventListener('change', () => {
+    yAutoscale = yAutoscaleToggle.checked;
     loadLatestForecast();
   });
 
