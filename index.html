@@ -75,14 +75,31 @@
 
     .controls {
       display: flex;
-      gap: 15px;
-      align-items: center;
-      margin-bottom: 20px;
       flex-wrap: wrap;
       justify-content: center;
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 20px;
     }
 
-    .controls label, .controls input, .controls button {
+    .controls-time {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .controls-action {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .controls label,
+    .controls input,
+    .controls button {
       font-size: 16px;
     }
 
@@ -173,6 +190,21 @@
         margin-bottom: 8px;
       }
 
+      /* Stack time + contol button groups vertically */
+      .controls {
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      /* Force action buttons into ONE horizontal row */
+      .controls-actions {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: max-content;
+        justify-content: center;
+        gap: 10px;
+      }
+
       .series-buttons {
         gap: 10px;
       }
@@ -196,13 +228,18 @@
   </div>
 
   <div class="controls">
-    <label for="forecast-date">Forecast date:</label>
-    <input type="date" id="forecast-date">
-    <label for="history-select">History:</label>
-    <select id="history-select"></select>
-    <button id="load-button">Load Forecast</button>
-    <button id="latest-button">Latest Forecast</button>
-    <button id="theme-toggle">Toggle Theme</button>
+    <div class="controls-time">
+      <label for="forecast-date">Forecast date:</label>
+      <input type="date" id="forecast-date">
+      <label for="history-select">History:</label>
+      <select id="history-select"></select>
+    </div>
+
+    <div class="controls-action">
+      <button id="load-button">Load Forecast</button>
+      <button id="latest-button">Latest Forecast</button>
+      <button id="theme-toggle">Toggle Theme</button>
+    </div>
   </div>
 
   <div id="series-buttons" class="series-buttons"></div>
