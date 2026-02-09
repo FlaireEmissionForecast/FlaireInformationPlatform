@@ -83,33 +83,32 @@ class ForecastDB:
             Column("frequency", String, nullable=False),
         )
 
-        # TODO: Lexicographical datetime comparisons are really unreliable!
-        #       It would be better to use Unix epoch time (in seconds) for the timestamps
-        #       As a bonus BETWEEN queries should be faster as integer comparisons
+        # TODO: Lexicographical datetime comparisons are really easy to mess up with different formats and timezones
+        #       It would be better to use Unix epoch time (in seconds) for the timestamps as they are unambiguous and efficient to compare, store and index
         self.runs = Table(
             "runs", self.metadata,
-            Column("run_id", String, primary_key=True),
-            Column("series_key", String, ForeignKey("series.series_key"), nullable=False),
+            Column("run_id",           String,  primary_key=True),
+            Column("series_key",       String,  ForeignKey("series.series_key"), nullable=False),
             Column("forecast_horizon", Integer, nullable=True),
-            Column("forecast_start", DateTime(timezone=True), nullable=False),
-            Column("created_at", DateTime(timezone=True), nullable=False),  # UTC
+            Column("forecast_start",   String,  nullable=False),
+            Column("created_at",       String,  nullable=False),
         )
         Index("ix_runs_series_created", self.runs.c.series_key, self.runs.c.created_at.desc())
 
         self.metrics = Table(
             "metrics", self.metadata,
-            Column("run_id", String, ForeignKey("runs.run_id"), primary_key=True),
+            Column("run_id",       String, ForeignKey("runs.run_id"), primary_key=True),
             Column("metrics_json", JSON().with_variant(String, "sqlite"), nullable=False),
         )
 
         self.observations = Table(
             "observations", self.metadata,
-            Column("id", Integer, primary_key=True, autoincrement=True),
+            Column("id",         Integer, primary_key=True, autoincrement=True),
             Column("series_key", String, ForeignKey("series.series_key"), nullable=False),
-            Column("kind", String, nullable=False),  # 'history' | 'forecast'
-            Column("timestamp", DateTime(timezone=True), nullable=False),  # UTC
-            Column("value", Float, nullable=False),
-            Column("run_id", String, ForeignKey("runs.run_id"), nullable=True),
+            Column("kind",       String,                                  nullable=False),
+            Column("timestamp",  String,                                  nullable=False),
+            Column("value",      Float,                                   nullable=False),
+            Column("run_id",     String, ForeignKey("runs.run_id"),       nullable=True),
             UniqueConstraint("series_key", "kind", "timestamp", name="uq_series_kind_ts"),
             Index("ix_obs_series_ts", "series_key", "timestamp"),
         )
@@ -163,6 +162,17 @@ class ForecastDB:
             #   - Ensures no orphaned (runs which have a non-existent series_key) runs/observations can be inserted
             conn.execute(text("PRAGMA foreign_keys=ON;"))
 
+    @staticmethod
+    def _set_ts_format(ts: pd.Timestamp) -> str:
+        # Convert datetime to Timestamp if needed
+        if isinstance(ts, datetime):
+            ValueError("Expected pd.Timestamp, got datetime. Convert to Timestamp to maintain DB coherence.")
+        
+        # Ensure timestamp is timezone-aware; if naive, assume DEFAULT_TZ; then convert to UTC
+        if ts.tzinfo is None:
+            ts = ts.tz_localize(DEFAULT_TZ, ambiguous="infer", nonexistent="shift_forward")
+        ts_utc = ts.tz_convert("UTC")
+        return ts_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def _bulk_upsert(self, df: pd.DataFrame, kind: str, run_id: Optional[str]) -> int:
         if kind not in ("history", "forecast"):
@@ -179,7 +189,7 @@ class ForecastDB:
             {
                 "series_key" : self.props.series_key,
                 "kind"       : kind,
-                "timestamp"  : ts.astimezone(timezone.utc),
+                "timestamp"  : self._set_ts_format(ts),
                 "value"      : float(val),
                 "run_id"     : run_id
             }
@@ -243,7 +253,7 @@ class ForecastDB:
             cutoff_ts = now_utc - offset
 
             # Conver from Pandas Timestamp to datetime and then ISO date string
-            cutoff = cutoff_ts.to_pydatetime().replace(tzinfo=timezone.utc).isoformat()
+            cutoff = self._set_ts_format(cutoff_ts)
 
             # Delete historical observations before the cutoff
             delete_stmt = text("""
@@ -265,19 +275,23 @@ class ForecastDB:
         run_id: str | None = None,
         metrics: Mapping[str, float | int | None] | None = None,
         forecast_horizon: int | None = None,
-        created_at_utc: datetime | None = None
+        created_at_utc: pd.Timestamp | None = None
         # input_tz: str = "UTC" # NOTE: Not used ATM, as everything is assumed as UTC inside the DB
     ) -> str:
         """Upsert forecast rows (latest wins) and optional metrics in one call; returns run_id."""
 
         # Get forecast creation and time series start dates as UTC
-        created_at_utc = created_at_utc or datetime.now(timezone.utc)
+        created_at_utc = created_at_utc or pd.Timestamp.utcnow()
         if isinstance(obj, pd.Series):
-            forecast_start_utc = obj.index.min().to_pydatetime().astimezone(timezone.utc)
+            forecast_start_utc = obj.index.min().astimezone(timezone.utc)
         elif isinstance(obj, pd.DataFrame):
-            forecast_start_utc = obj["timestamp"].min().to_pydatetime().astimezone(timezone.utc)
+            forecast_start_utc = obj["timestamp"].min().astimezone(timezone.utc)
         else:
             raise RuntimeError("Data object is not a Pandas series or DataFrame")
+        
+        # Format created_at and forecast_start as ISO strings
+        created_at_utc     = self._set_ts_format(created_at_utc)
+        forecast_start_utc = self._set_ts_format(forecast_start_utc)
 
         # Ensure run row has a unique identifier
         if run_id is None:

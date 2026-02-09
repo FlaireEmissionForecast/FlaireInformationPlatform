@@ -67,7 +67,7 @@ def _check_db_exists():
                 "error": "Forecast database not found.",
                 "message": (
                     "The forecast database does not exist yet. "
-                    "It is normally created by the model when saving results. "
+                    "It is created by the model when saving results. "
                     "Please run the forecast model or data writer first."
                 ),
             },
@@ -177,8 +177,8 @@ def _get_forecast_payload(series, run, hist_rows, fc_rows, metrics, tzinfo, run_
     """
 
     # Convert timestamps from UTC to requested timezone
-    forecast_start_tz = _convert_utc_ts_to_local(run["forecast_start"], tzinfo)
-    generated_at_tz   = _convert_utc_ts_to_local(run["created_at"],     tzinfo)
+    forecast_start_tz = _convert_utc_ts_to_local(run["forecast_start"], tzinfo).replace(microsecond=0)
+    generated_at_tz   = _convert_utc_ts_to_local(run["created_at"],     tzinfo).replace(microsecond=0)
 
     return {
         "metadata": {
@@ -189,8 +189,8 @@ def _get_forecast_payload(series, run, hist_rows, fc_rows, metrics, tzinfo, run_
             "region"         : series["region"],
             "frequency"      : series["frequency"],
             "run_id"         : run_id or run.get("run_id"),
-            "forecast_start" : forecast_start_tz.replace(microsecond=0),
-            "generated_at"   : generated_at_tz.replace(microsecond=0),
+            "forecast_start" : forecast_start_tz.isoformat(),
+            "generated_at"   : generated_at_tz.isoformat(),
         },
         "data": {
             "history"  : _iso_map(hist_rows, tzinfo),
@@ -261,8 +261,10 @@ def forecast(
             day_end = day_start + timedelta(days=1)
 
             # Convert to UTC for DB comparison (DB stores timestamps in UTC ISO format)
-            day_start_utc = day_start.astimezone(timezone.utc).isoformat()
-            day_end_utc   = day_end.astimezone(timezone.utc).isoformat()
+            # day_start_utc = day_start.astimezone(timezone.utc).isoformat()
+            # day_end_utc   = day_end.astimezone(timezone.utc).isoformat()
+            day_start_utc = ForecastDB._set_ts_format(pd.Timestamp(day_start))
+            day_end_utc   = ForecastDB._set_ts_format(pd.Timestamp(day_end))
 
             run = conn.execute(
                 text("""
@@ -291,8 +293,12 @@ def forecast(
             raise ValueError(f"Cannot parse history string '{history_len}' to Timedelta") from e
 
         # Calculate start datetimes for historical and forecast data
-        forecast_start_utc = datetime.fromisoformat(run["forecast_start"])
-        history_start_utc = forecast_start_utc - history_offset
+        forecast_start_utc = pd.Timestamp(run["forecast_start"])
+        history_start_utc  = forecast_start_utc - history_offset
+
+        # Convert timestamps to ISO format for DB queries
+        forecast_start_utc = ForecastDB._set_ts_format(forecast_start_utc)
+        history_start_utc  = ForecastDB._set_ts_format(history_start_utc)
 
         # Get historical and forecast data from the DB with date range and run ID
         hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)        
@@ -365,8 +371,12 @@ def latest_forecast(
             raise ValueError(f"Cannot parse history string '{history_len}' to Timedelta: {e}")
 
         # Calculate start datetimes for historical and forecast data
-        forecast_start_utc = datetime.fromisoformat(run["forecast_start"])
-        history_start_utc = forecast_start_utc - history_offset
+        forecast_start_utc = pd.Timestamp(run["forecast_start"])
+        history_start_utc  = forecast_start_utc - history_offset
+
+        # Convert timestamps to ISO format for DB queries
+        forecast_start_utc = ForecastDB._set_ts_format(forecast_start_utc)
+        history_start_utc  = ForecastDB._set_ts_format(history_start_utc)
 
         # Get historical and forecast data from the DB with date range and run ID
         hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)
@@ -401,8 +411,14 @@ def history(
     tzinfo = ZoneInfo(tz)
 
     # Conver timestamp to database compatible datetime format
-    from_dt_utc = _convert_local_ts_to_utc(date_from, tzinfo)
-    to_dt_utc   = _convert_local_ts_to_utc(date_to,   tzinfo)
+    # from_dt_utc = _convert_local_ts_to_utc(date_from, tzinfo)
+    # to_dt_utc   = _convert_local_ts_to_utc(date_to,   tzinfo)
+    from_dt_utc = pd.Timestamp(date_from).tz_localize(tzinfo)
+    to_dt_utc   = pd.Timestamp(date_to).tz_localize(tzinfo)
+
+    # Convert timestamps to ISO format for DB queries
+    from_dt_utc = ForecastDB._set_ts_format(from_dt_utc)
+    to_dt_utc   = ForecastDB._set_ts_format(to_dt_utc)
 
     with engine.begin() as conn:
         # Get series metadata
@@ -468,10 +484,15 @@ def info():
                 {"k": s["series_key"]},
             ).mappings().first()
 
+            # Convert from iso format to local timezone for better readability
+            if hist_info and hist_info["start_time"] and hist_info["end_time"]:
+                hist_info_start_tz = _convert_utc_ts_to_local(hist_info["start_time"], ZoneInfo(DEFAULT_TZ))
+                hist_info_end_tz   = _convert_utc_ts_to_local(hist_info["end_time"],   ZoneInfo(DEFAULT_TZ))
+
             hist_list.append({
                 "series_key"    : s["series_key"],
-                "history_start" : hist_info["start_time"],
-                "history_end"   : hist_info["end_time"],
+                "history_start" : hist_info_start_tz.isoformat(),
+                "history_end"   : hist_info_end_tz.isoformat(),
                 "history_count" : hist_info["observation_count"],
             })
 
@@ -521,8 +542,9 @@ def batch_upsert(payload: BatchUpsertPayload):
         if not points:
             return pd.DataFrame(columns=["timestamp", "value"])
         return pd.DataFrame(
-            {"timestamp" : [p.timestamp for p in points],
-             "value"     : [p.value for p in points]}
+            {"timestamp" : ts,
+             "value"     : val}
+            for ts, val in ((p.timestamp, p.value) for p in points)
         )
 
     history_df  = to_df(payload.history)
@@ -537,8 +559,9 @@ def batch_upsert(payload: BatchUpsertPayload):
         run_id = db.write_forecast(
             forecast_df,
             payload.properties.get("run_id", None),
-            forecast_horizon=payload.properties.get("forecast_horizon", len(forecast_df)),
-            metrics=payload.metrics or {}
+            payload.metrics or {},
+            payload.properties.get("forecast_horizon", len(forecast_df)),
+            payload.properties.get("created_at", None) # TODO: Include created_at in the payload?
         )
 
     return {"status": "ok", "run_id": run_id}
@@ -600,13 +623,13 @@ if __name__ == "__main__":
 
     def test_forecast():
         response = client.get("/forecast/", params={"series_key" : "consumption_emissions",
-                                                    "date"       : "2025-11-04"})
+                                                    "date"       : "2026-02-09"})
         assert response.status_code == 200
 
     def test_history():
         response = client.get("/history", params={"series_key" : "consumption_emissions",
-                                                  "date_from"  : "2025-10-28",
-                                                  "date_to"    : "2025-11-03"})
+                                                  "date_from"  : "2026-01-19",
+                                                  "date_to"    : "2026-01-31"})
         assert response.status_code == 200
 
     def test_info():
