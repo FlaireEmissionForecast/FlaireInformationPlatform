@@ -337,11 +337,13 @@ def latest_forecast(
             ).mappings().first()
         else:
             run = conn.execute(
+                # Always get the latest run, break ties with forecast start time and then creation time
                 text("""
                     SELECT *
                     FROM runs
                     WHERE series_key = :k
-                    ORDER BY forecast_start DESC
+                    ORDER BY forecast_start DESC,
+                             created_at DESC
                     LIMIT 1
                     """),
                 {"k": series_key},
