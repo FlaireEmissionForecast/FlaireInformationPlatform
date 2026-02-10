@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 import json
-from datetime import datetime, time, timedelta, timezone
-from typing import Optional, Dict, List
+from typing import Dict, List
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -78,31 +77,21 @@ def _iso_map(rows, tz: ZoneInfo) -> Dict[str, float]:
     out = {}
     for ts, val in rows:
         # Parse UTC Naive DB timestamps as UTC aware
-        ts = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+        ts_utc = pd.Timestamp(ts, tz="UTC")
         # Convert to requested timezone which shifts the times accordingly
-        ts = ts.astimezone(tz)
-        out[ts.isoformat()] = round(float(val), 2)
+        ts_tz = ts_utc.tz_convert(tz)
+        out[ts_tz.isoformat()] = round(float(val), 1)
     return out
 
-def _convert_local_ts_to_utc(ts_str : str, tzinfo : ZoneInfo) -> datetime:
+def _convert_local_ts_to_utc(ts_str : str, tzinfo : ZoneInfo) -> pd.Timestamp:
     # Parse UTC Naive DB timestamps as UTC aware
-    ts = datetime.fromisoformat(ts_str)
-    if ts.tzinfo is None:
-        # There should pretty much never be accompanying tzinfos
-        ts = ts.replace(tzinfo=tzinfo)
+    ts = pd.Timestamp(ts_str, tz=tzinfo)
+    return ts.tz_convert("UTC")
 
-    # Convert to database UTC timezone which shifts the times accordingly
-    return ts.astimezone(timezone.utc)
-
-def _convert_utc_ts_to_local(ts_str : str, tzinfo : ZoneInfo) -> datetime:
+def _convert_utc_ts_to_local(ts_str : str, tzinfo : ZoneInfo) -> pd.Timestamp:
     # Parse UTC Naive DB timestamps as UTC aware
-    ts = datetime.fromisoformat(ts_str)
-    if ts.tzinfo is None:
-        # There should pretty much never be accompanying tzinfos
-        ts = ts.replace(tzinfo=timezone.utc)
-
-    # Convert to database UTC timezone which shifts the times accordingly
-    return ts.astimezone(tzinfo)
+    ts = pd.Timestamp(ts_str, tz="UTC")
+    return ts.tz_convert(tzinfo)
 
 def _get_metrics(run_id : str, conn : Connection):
     m = conn.execute(text("SELECT metrics_json FROM metrics WHERE run_id=:r"), {"r": run_id}).mappings().first()
@@ -252,19 +241,16 @@ def forecast(
                 {"r": run_id, "k": series_key},
             ).mappings().first()
         elif date:
-            # Conver timestamp to database compatible format
-            ts = _convert_local_ts_to_utc(date, tzinfo)
+            # Convert timestamp to database compatible format
+            utc_ts = _convert_local_ts_to_utc(date, tzinfo)
 
             # Use the whole day (00:00:00 .. < next day 00:00:00) in requested tz
-            day = ts.date()
-            day_start = datetime.combine(day, time.min, tzinfo=ZoneInfo(tz))
-            day_end = day_start + timedelta(days=1)
+            day_start = utc_ts.normalize()
+            day_end   = day_start + pd.Timedelta(days=1)
 
             # Convert to UTC for DB comparison (DB stores timestamps in UTC ISO format)
-            # day_start_utc = day_start.astimezone(timezone.utc).isoformat()
-            # day_end_utc   = day_end.astimezone(timezone.utc).isoformat()
-            day_start_utc = ForecastDB._set_ts_format(pd.Timestamp(day_start))
-            day_end_utc   = ForecastDB._set_ts_format(pd.Timestamp(day_end))
+            day_start_utc = ForecastDB._set_db_utc_ts(day_start)
+            day_end_utc   = ForecastDB._set_db_utc_ts(day_end)
 
             run = conn.execute(
                 text("""
@@ -297,8 +283,8 @@ def forecast(
         history_start_utc  = forecast_start_utc - history_offset
 
         # Convert timestamps to ISO format for DB queries
-        forecast_start_utc = ForecastDB._set_ts_format(forecast_start_utc)
-        history_start_utc  = ForecastDB._set_ts_format(history_start_utc)
+        forecast_start_utc = ForecastDB._set_db_utc_ts(forecast_start_utc)
+        history_start_utc  = ForecastDB._set_db_utc_ts(history_start_utc)
 
         # Get historical and forecast data from the DB with date range and run ID
         hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)        
@@ -375,8 +361,8 @@ def latest_forecast(
         history_start_utc  = forecast_start_utc - history_offset
 
         # Convert timestamps to ISO format for DB queries
-        forecast_start_utc = ForecastDB._set_ts_format(forecast_start_utc)
-        history_start_utc  = ForecastDB._set_ts_format(history_start_utc)
+        forecast_start_utc = ForecastDB._set_db_utc_ts(forecast_start_utc)
+        history_start_utc  = ForecastDB._set_db_utc_ts(history_start_utc)
 
         # Get historical and forecast data from the DB with date range and run ID
         hist_rows = _get_history_data_by_datetime_range(conn, series_key, history_start_utc, forecast_start_utc)
@@ -410,15 +396,13 @@ def history(
     # Prepare timezone info
     tzinfo = ZoneInfo(tz)
 
-    # Conver timestamp to database compatible datetime format
-    # from_dt_utc = _convert_local_ts_to_utc(date_from, tzinfo)
-    # to_dt_utc   = _convert_local_ts_to_utc(date_to,   tzinfo)
-    from_dt_utc = pd.Timestamp(date_from).tz_localize(tzinfo)
-    to_dt_utc   = pd.Timestamp(date_to).tz_localize(tzinfo)
+    # Convert input datetimes to timezone-aware Timestamps
+    from_utc_ts = _convert_local_ts_to_utc(date_from, tzinfo)
+    to_utc_ts   = _convert_local_ts_to_utc(date_to, tzinfo)
 
-    # Convert timestamps to ISO format for DB queries
-    from_dt_utc = ForecastDB._set_ts_format(from_dt_utc)
-    to_dt_utc   = ForecastDB._set_ts_format(to_dt_utc)
+    # Convert timestamps to ISO UTC format for DB queries
+    from_utc_str = ForecastDB._set_db_utc_ts(from_utc_ts)
+    to_utc_str   = ForecastDB._set_db_utc_ts(to_utc_ts)
 
     with engine.begin() as conn:
         # Get series metadata
@@ -427,7 +411,7 @@ def history(
             return {"error": f"series_key '{series_key}' not found"}
         
         # Get historical data for the requested date range
-        hist_rows = _get_history_data_by_datetime_range(conn, series_key, from_dt_utc, to_dt_utc)
+        hist_rows = _get_history_data_by_datetime_range(conn, series_key, from_utc_str, to_utc_str)
 
     payload = _get_history_payload(series, hist_rows, tzinfo)
     return payload
@@ -555,13 +539,17 @@ def batch_upsert(payload: BatchUpsertPayload):
         db.write_history(history_df, input_tz="UTC")
         db.prune_history(payload.properties.get("history_prune_age", "1Y"))
 
+    created_at = payload.properties.get("created_at")
+    if created_at is not None:
+        created_at = pd.Timestamp(created_at)
+
     if not forecast_df.empty:
         run_id = db.write_forecast(
             forecast_df,
             payload.properties.get("run_id", None),
             payload.metrics or {},
             payload.properties.get("forecast_horizon", len(forecast_df)),
-            payload.properties.get("created_at", None) # TODO: Include created_at in the payload?
+            created_at # TODO: Include created_at in the payload?
         )
 
     return {"status": "ok", "run_id": run_id}
@@ -655,7 +643,6 @@ if __name__ == "__main__":
                 os.remove(p)
 
         # Remove test DB dir
-        print(DB_PATH.split("/")[-1])
         os.removedirs(DB_PATH.removesuffix(DB_PATH.split("/")[-1]))
 
     print("[DONE] All database and API tests passed successfully!")

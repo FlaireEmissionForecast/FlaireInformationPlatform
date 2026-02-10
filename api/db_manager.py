@@ -163,14 +163,18 @@ class ForecastDB:
             conn.execute(text("PRAGMA foreign_keys=ON;"))
 
     @staticmethod
-    def _set_ts_format(ts: pd.Timestamp) -> str:
-        # Convert datetime to Timestamp if needed
-        if isinstance(ts, datetime):
-            ValueError("Expected pd.Timestamp, got datetime. Convert to Timestamp to maintain DB coherence.")
+    def _set_db_utc_ts(ts: pd.Timestamp) -> str:
+        # Reject plain datetime.datetime but allow pd.Timestamp
+        if isinstance(ts, datetime) and not isinstance(ts, pd.Timestamp):
+            raise TypeError("Expected pd.Timestamp, got datetime.datetime. "
+                            "Convert to pd.Timestamp before calling _set_ts_format().")
+
+        if not isinstance(ts, pd.Timestamp):
+            raise TypeError(f"Expected pd.Timestamp, got {type(ts).__name__}")
         
         # Ensure timestamp is timezone-aware; if naive, assume DEFAULT_TZ; then convert to UTC
         if ts.tzinfo is None:
-            ts = ts.tz_localize(DEFAULT_TZ, ambiguous="infer", nonexistent="shift_forward")
+            ts = ts.tz_localize(DEFAULT_TZ, ambiguous="raise", nonexistent="shift_forward")
         ts_utc = ts.tz_convert("UTC")
         return ts_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -189,7 +193,7 @@ class ForecastDB:
             {
                 "series_key" : self.props.series_key,
                 "kind"       : kind,
-                "timestamp"  : self._set_ts_format(ts),
+                "timestamp"  : self._set_db_utc_ts(ts),
                 "value"      : float(val),
                 "run_id"     : run_id
             }
@@ -253,7 +257,7 @@ class ForecastDB:
             cutoff_ts = now_utc - offset
 
             # Conver from Pandas Timestamp to datetime and then ISO date string
-            cutoff = self._set_ts_format(cutoff_ts)
+            cutoff = self._set_db_utc_ts(cutoff_ts)
 
             # Delete historical observations before the cutoff
             delete_stmt = text("""
@@ -290,8 +294,8 @@ class ForecastDB:
             raise RuntimeError("Data object is not a Pandas series or DataFrame")
         
         # Format created_at and forecast_start as ISO strings
-        created_at_utc     = self._set_ts_format(created_at_utc)
-        forecast_start_utc = self._set_ts_format(forecast_start_utc)
+        created_at_utc     = self._set_db_utc_ts(created_at_utc)
+        forecast_start_utc = self._set_db_utc_ts(forecast_start_utc)
 
         # Ensure run row has a unique identifier
         if run_id is None:
