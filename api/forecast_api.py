@@ -80,7 +80,7 @@ def _iso_map(rows, tz: ZoneInfo) -> Dict[str, float]:
         ts_utc = pd.Timestamp(ts, tz="UTC")
         # Convert to requested timezone which shifts the times accordingly
         ts_tz = ts_utc.tz_convert(tz)
-        out[ts_tz.isoformat()] = round(float(val), 1)
+        out[ts_tz.isoformat()] = round(float(val), 2)
     return out
 
 def _convert_local_ts_to_utc(ts_str : str, tzinfo : ZoneInfo) -> pd.Timestamp:

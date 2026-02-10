@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Mapping, Optional, Dict, List, Any
 from pydantic import BaseModel, Field
@@ -11,7 +10,7 @@ import json
 
 import pandas as pd
 from sqlalchemy import (
-    create_engine, MetaData, Table, Column, String, Integer, DateTime, Float,
+    create_engine, MetaData, Table, Column, String, Integer, Float,
     ForeignKey, JSON, text, UniqueConstraint, Index
     )
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -256,7 +255,7 @@ class ForecastDB:
             now_utc   = pd.Timestamp.utcnow()
             cutoff_ts = now_utc - offset
 
-            # Conver from Pandas Timestamp to datetime and then ISO date string
+            # Localize timestamp and form ISO date string
             cutoff = self._set_db_utc_ts(cutoff_ts)
 
             # Delete historical observations before the cutoff
