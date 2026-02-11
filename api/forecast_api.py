@@ -6,7 +6,7 @@ from typing import Dict, List
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from fastapi import FastAPI, Query, Depends, Header, HTTPException
+from fastapi import FastAPI, Query, Response, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text, Connection
@@ -29,7 +29,7 @@ API_KEY    = os.environ["FORECAST_API_KEY"] # A secret key to authenticate API P
 # Define path to test website
 index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
 
-api = FastAPI(title="Flip Forecast API", version="0.3.0")
+api = FastAPI(title="Flip Forecast API", version="0.4.0")
 
 # CORS only affects browsers, not direct requests from backend, scripts, etc.
 api.add_middleware(
@@ -212,6 +212,7 @@ def _get_history_payload(series, hist_rows, tzinfo):
 ############################
 @api.get("/forecast")
 def forecast(
+    response    : Response,
     series_key  : str = Query(..., description="Always required, e.g. 'consumption_emissions'"),
     date        : str = Query(..., description="The date for which latest forecast is queried by creation date (e.g. '2025-06-15')"),
     history_len : str | None = Query(default="1W", description="Desired amount of history to query with the forecast in Pandas offset alias format (e.g. '1W' for one week)"),
@@ -297,11 +298,15 @@ def forecast(
     # Build forecast JSON payload
     payload = _get_forecast_payload(series, run, hist_rows, fc_rows, 
                                     metrics, tzinfo, run_id)
+    
+    # Add response header to indicate the payload should not be cached
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0"
 
     return payload
 
 @api.get("/forecast/latest")
 def latest_forecast(
+    response    : Response,
     series_key : str = Query(..., description="Always required, e.g. 'consumption_emissions'"),
     history_len: str | None = Query(default="1W", description="Desired amount of history to query with the forecast in Pandas offset alias format (e.g. '1W' for one week)"),
     tz         : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
@@ -377,11 +382,15 @@ def latest_forecast(
     # Build forecast JSON payload
     payload = _get_forecast_payload(series, run, hist_rows, fc_rows, 
                                     metrics, tzinfo, run_id)
+    
+    # Add response header to indicate the payload should not be cached
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0"
 
     return payload
 
 @api.get("/history")
 def history(
+    response    : Response,
     series_key  : str = Query(..., description="Always required, e.g. 'consumption_emissions'"),
     date_from   : str = Query(..., description="The date beginning form which to fetch historical data (e.g. '2026-01-02')"),
     date_to     : str = Query(..., description="The non-inclusive date until which historical data is fetched (e.g. '2025-06-15')"),
@@ -416,10 +425,16 @@ def history(
         hist_rows = _get_history_data_by_datetime_range(conn, series_key, from_utc_str, to_utc_str)
 
     payload = _get_history_payload(series, hist_rows, tzinfo)
+
+    # Add response header to indicate the payload should not be cached
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0"
+
     return payload
 
 @api.get("/info")
-def info():
+def info(
+    response : Response
+    ):
     """
     Returns metadata about the available forecast series and database structure.
     """
@@ -488,17 +503,25 @@ def info():
         "runs"   : runs_list,
         "history": hist_list,
         }
+    
+    # Add response header to indicate the payload should not be cached
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0"
 
     return payload
 
 @api.get("/status")
-def status():
+def status(
+    response : Response
+    ):
     """
     Check that the database exists, inform user if it does not
     """
     warn = _check_db_exists()
     if warn:
         return warn
+    
+    # Add response header to indicate the payload should not be cached
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0"
     
     return {"message" : f"Database OK, found from: {DB_PATH}"}
 
@@ -627,9 +650,9 @@ if __name__ == "__main__":
         assert response.status_code == 200
 
     try:
+        test_batch_upsert_post()
         test_batch_upsert_direct(False)
         test_batch_upsert_direct(True)
-        test_batch_upsert_post()
         test_latest_forecast()
         test_forecast()
         test_history()
