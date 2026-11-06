@@ -1,5 +1,11 @@
+# Secret environment variables
+.env
+
 # SQLite database
 db/forecasts.sqlite*
+
+# Data cache for external APIs
+data_cache/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
