@@ -210,6 +210,19 @@ def _get_history_payload(series, hist_rows, tzinfo):
         },
     }
 
+def _df_to_tv_dict(df : pd.DataFrame) -> dict:
+    """
+    Convert DF to compact datetime-value dictionary (assumes values are in the first column)
+    """
+    return (
+        {
+            timestamp.isoformat(): float(value)
+            for timestamp, value in df.iloc[:, 0].items()
+        }
+        if df is not None
+        else {}
+    )
+
 ############################
 ### API Endpoint Methods ###
 ############################
@@ -590,7 +603,7 @@ def latest_spotprice(
     response     : Response,
     bidding_zone : str = Query(default='FI', description="Bidding zone for which to retrieve latest available spot prices, default is 'FI'"),
     query_hours  : int = Query(default=24, description="Define number of hours to query for the latest available day-ahead spot prices, defaults to 24 hours."),
-    history_len  : str | None = Query(default=None, description="Desired amount of history to query with the forecast in Pandas offset alias format (e.g. '1W' for one week)"),
+    history_len  : str | None = Query(default=None, description="Desired amount of history to query with the prices in Pandas offset alias format (e.g. '1W' for one week)"),
     tz           : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
     ):
     """
@@ -604,7 +617,7 @@ def latest_spotprice(
     now = dt.datetime.now()
 
     # Init response to none for possible zero responses (ENTSO-E API issues etc.)
-    spot_df = None
+    spot_fc_df = None
 
     # Check if day-ahead spot prices are available i.e. is the current time past 14:30 (high chance they are)
     check = dt.datetime(now.year, now.month, now.day, 14, 30)
@@ -618,11 +631,11 @@ def latest_spotprice(
         fallback = False
 
     # Query day-ahead spot prices from the ENTSO-E API
-    spot_df = API.get_day_ahead_spot_prices(now, query_hours, bidding_zone)
+    spot_fc_df = API.get_day_ahead_spot_prices(now, query_hours, bidding_zone)
 
-    if spot_df.empty or len(spot_df) != query_hours:
+    if spot_fc_df.empty or len(spot_fc_df) != query_hours:
         msg = "There was an issue fetching day-ahead spot prices, try again later (sleep 5 min)"
-        spot_df = None
+        spot_fc_df = None
     elif fallback:
         msg = f"Returning day-ahead spot prices from yesterday as tomorrow's prices are not yet available at query time: {now:%H:%M:%S}"
     else:
@@ -651,19 +664,90 @@ def latest_spotprice(
         if spot_obs_df.empty or len(spot_obs_df) != query_hours:
             msg = "There was an issue fetching historical spot prices, try again later (sleep 5 min)"
 
-    # Convert DF to compact datetime-value dictionary (assumes values are in the first column)
-    def df_to_tv_dict(df : pd.DataFrame) -> dict:
-        return (
-            {
-                timestamp.isoformat(): float(value)
-                for timestamp, value in df.iloc[:, 0].items()
-            }
-            if df is not None
-            else {}
-        )
+    # Convert DF to compact datetime-value dictionary
+    forecast = _df_to_tv_dict(spot_fc_df) 
+    history  = _df_to_tv_dict(spot_obs_df)
 
-    forecast = df_to_tv_dict(spot_df) 
-    history  = df_to_tv_dict(spot_obs_df)
+    payload = {
+                "metadata": {
+                    "message"        : msg,
+                    "bidding_zone"   : bidding_zone,
+                    "forecast_avail" : bool(forecast),
+                    "history_avail"  : bool(history),
+                    "query_time"     : now.isoformat(),
+                },
+                "data": {
+                    "history"  : history,
+                    "forecast" : forecast
+                }
+            }
+
+    # Add response header to indicate the payload should not be cached
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0"
+
+    return payload
+
+@api.get("/spotprice/range")
+def spotprice_range(
+    response     : Response,
+    bidding_zone : str = Query(default='FI', description="Bidding zone for which to retrieve latest available spot prices, default is 'FI'"),
+    date_from    : str = Query(..., description="Inclusive start from date for a specific spot-price range. Has to follow ISO 8601 format."),
+    date_to      : str = Query(..., description="Exclusive ending to date for a specific spot-price range. Has to follow ISO 8601 format."),
+    tz           : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
+    ):
+    """
+    Returns N number (default 24) of latest available day-ahead spot prices for the requested bidding zone.
+    """
+    # Convert date strings to timezone aware datetime objects
+    start_date = dt.datetime.fromisoformat(date_from)
+    end_date   = dt.datetime.fromisoformat(date_to)
+
+    # Check date range validity
+    if start_date is None or end_date is None or end_date <= start_date:
+        raise HTTPException(
+            status_code=422,
+            detail="Valid start_date and end_date must be supplied together with a sensible range."
+            )
+
+    # Init the API to correct timezone
+    API = entsoeSimpleAPI(tz)
+
+    # Init response to none for possible zero responses (ENTSO-E API issues etc.)
+    spot_obs_df = None
+    spot_fc_df  = None
+
+    # Check if day-ahead spot prices are available i.e. is the current time past 14:30 (high chance they are)
+    now      = dt.datetime.now()
+    tomorrow = dt.datetime.combine((now + dt.timedelta(days=1)), dt.time.min)
+    check    = dt.datetime(now.year, now.month, now.day, 14, 30)
+
+    # Check if end date is past 14:30 for today, if yes, end date to historical range 
+    # and then create forecast starting point for querying future day-ahead values
+    if end_date >= tomorrow and now > check:
+        # Align time boundary between history and future to midnight
+        adjusted_end = (end_date - dt.timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+            )
+        get_forecast = True
+    # If end date is not past day-ahead delivery, no need to query future values
+    else:
+        adjusted_end = end_date
+        get_forecast = False
+
+    # Query historical spot prices from the ENTSO-E API
+    spot_obs_df = API.get_range_spot_prices(start_date, adjusted_end, bidding_zone)
+
+    # Set metadata message
+    msg = f"Historical day-ahead spot prices available for query range {start_date} -> {adjusted_end}"
+
+    # Query day-ahead spot prices separately if needed
+    if get_forecast:
+        spot_fc_df = API.get_range_spot_prices(adjusted_end, end_date, bidding_zone)
+        msg = f"Historical and future day-ahead spot prices available for query range {adjusted_end} -> {end_date}"
+
+    # Convert DF to compact datetime-value dictionary
+    forecast = _df_to_tv_dict(spot_fc_df) 
+    history  = _df_to_tv_dict(spot_obs_df)
 
     payload = {
                 "metadata": {
@@ -748,7 +832,7 @@ if __name__ == "__main__":
     def test_history():
         response = client.get("/history", params={"series_key" : "consumption_emissions",
                                                   "date_from"  : "2026-01-19",
-                                                  "date_to"    : "2026-01-31"})
+                                                  "date_to"    : "2026-01-19"})
         assert response.status_code == 200
 
     def test_info():
@@ -765,6 +849,17 @@ if __name__ == "__main__":
                                                            "history_len"  : "2D"})
         assert response.status_code == 200
 
+    def test_range_spot():
+        response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
+                                                          "date_from"    : "2026-11-02",
+                                                          "date_to"      : "2026-11-10"})
+        assert response.status_code == 200
+
+        response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
+                                                          "date_from"    : "2026-11-02",
+                                                          "date_to"      : "2026-11-11"})
+        assert response.status_code == 200
+
     try:
         test_batch_upsert_post()
         test_batch_upsert_direct(False)
@@ -774,6 +869,7 @@ if __name__ == "__main__":
         test_history()
         test_info()
         test_latest_spot()
+        test_range_spot()
     except Exception as e:
         raise RuntimeError(f"One or more database API tests failed") from e
     finally:
@@ -788,4 +884,4 @@ if __name__ == "__main__":
         if DB_PATH.parent.exists():
             DB_PATH.parent.rmdir()
 
-    print("[DONE] All database and API tests passed successfully!")
+        print("[DONE] All database and API tests passed successfully!")

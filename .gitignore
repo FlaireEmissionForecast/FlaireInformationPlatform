@@ -3,6 +3,7 @@
 
 # SQLite database
 db/forecasts.sqlite*
+test_db/
 
 # Data cache for external APIs
 data_cache/
