@@ -4,10 +4,10 @@ import pandas as pd
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from typing import Callable
-from entsoe_api_utils import *
 
-# Import simple cache
-from simple_cache import SimpleCache
+# Import utlis and simple cache
+from external_apis.entsoe_api_utils import *
+from external_apis.simple_cache import SimpleCache
 
 # Load .env for environment variables
 load_dotenv()
@@ -15,7 +15,7 @@ load_dotenv()
 # Replace with your own ENTSO-E API security token
 ENTSOE_API_KEY = get_env_var("ENTSOE_SECURITY_TOKEN")
 
-class entsoeAPI:
+class entsoeSimpleAPI:
     def __init__(self, timezone="UTC"):
         self.client = EntsoePandasClient(api_key=ENTSOE_API_KEY)
         self.tz     = timezone
@@ -131,14 +131,14 @@ class entsoeAPI:
             - If caching is enabled and the cache file exists, the data is loaded from the cache.
             - If caching is enabled and the cache file does not exist, the fetched data is saved to the cache.
         """
-        # Add one day to the current date for a day-ahead query
+        # Add one day to the current date for a day-ahead query (date() sets the time at day boundary)
         start_date = now_date.date() + dt.timedelta(days=1)
 
         # Format and localize time range for forecast query
         start, end = self._get_forecast_time_range(start_date, query_hours)
 
         # Create value name
-        val_type   = "day-ahead_spot"
+        val_type   = "spot_da"
         val_nm     = f"{country_code}_{val_type}"
 
         # Get the requested data with the correct client query
@@ -235,8 +235,8 @@ class entsoeAPI:
         return res_df
 
 if __name__ == "__main__":
-    # Test endpoints
-    API = entsoeAPI('Europe/Helsinki')
+    # Test queries and cache
+    API = entsoeSimpleAPI('Europe/Helsinki')
 
     # Get latest day-ahead prices
     # now   = dt.datetime.now()

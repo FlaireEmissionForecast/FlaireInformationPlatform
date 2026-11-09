@@ -12,10 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, text, Connection
 
 # Import class for managing local DB
-from db_manager import (ForecastDB, 
-                        SeriesProps, 
-                        TVPoint, 
-                        BatchUpsertPayload)
+from api.db_manager import (ForecastDB, 
+                            SeriesProps, 
+                            TVPoint, 
+                            BatchUpsertPayload)
+
+from external_apis.entsoe_simple_api import entsoeSimpleAPI
+import datetime as dt
 
 from dotenv import load_dotenv
 
@@ -29,7 +32,7 @@ API_KEY    = os.environ["FORECAST_API_KEY"] # A secret key to authenticate API P
 # Define path to test website
 index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
 
-api = FastAPI(title="Flip Forecast API", version="0.4.0")
+api = FastAPI(title="Flip Forecast API", version="0.5.0")
 
 # CORS only affects browsers, not direct requests from backend, scripts, etc.
 api.add_middleware(
@@ -579,6 +582,108 @@ def batch_upsert(payload: BatchUpsertPayload):
 
     return {"status": "ok", "run_id": run_id}
 
+################################################
+### Enpoints interacting with external APIs  ###
+################################################
+@api.get("/spotprice/latest")
+def latest_spotprice(
+    response     : Response,
+    bidding_zone : str = Query(default='FI', description="Bidding zone for which to retrieve latest available spot prices, default is 'FI'"),
+    query_hours  : int = Query(default=24, description="Define number of hours to query for the latest available day-ahead spot prices, defaults to 24 hours."),
+    history_len  : str | None = Query(default=None, description="Desired amount of history to query with the forecast in Pandas offset alias format (e.g. '1W' for one week)"),
+    tz           : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
+    ):
+    """
+    Returns N number (default 24) of latest available day-ahead spot prices for the requested bidding zone.
+    """
+
+    # Init the API to correct timezone
+    API = entsoeSimpleAPI(tz)
+
+    # Set datetime to current time and date
+    now = dt.datetime.now()
+
+    # Init response to none for possible zero responses (ENTSO-E API issues etc.)
+    spot_df = None
+
+    # Check if day-ahead spot prices are available i.e. is the current time past 14:30 (high chance they are)
+    check = dt.datetime(now.year, now.month, now.day, 14, 30)
+
+    # Check if past 14:30 for today, if not, adjust query on day backwards 
+    # for the latest available DA prices i.e. yesterdays prices for today
+    if now < check:
+        now     -= dt.timedelta(days=1)
+        fallback = True
+    else:
+        fallback = False
+
+    # Query day-ahead spot prices from the ENTSO-E API
+    spot_df = API.get_day_ahead_spot_prices(now, query_hours, bidding_zone)
+
+    if spot_df.empty or len(spot_df) != query_hours:
+        msg = "There was an issue fetching day-ahead spot prices, try again later (sleep 5 min)"
+        spot_df = None
+    elif fallback:
+        msg = f"Returning day-ahead spot prices from yesterday as tomorrow's prices are not yet available at query time: {now:%H:%M:%S}"
+    else:
+        msg = f"Day-ahead spot prices available for tomorrow at query time: {now:%H:%M:%S}"
+
+    # Get historical data, if history length is not None
+    spot_obs_df = None
+    if history_len is not None:
+        # Determine history start time based on requested history duration
+        try:
+            history_offset = _parse_simple_delta(history_len)
+        except Exception as e:
+            raise ValueError(f"Cannot parse history string '{history_len}' to Timedelta: {e}")
+
+        # Calculate from and to dates for historical data, use date() to align day boundary with forecast
+        end   = now.date() + dt.timedelta(days=1) # Make end date inclusive (ENTSO-E API is end exclusive)
+        start = end - history_offset
+
+        # Query historical spot prices
+        spot_obs_df = API.get_range_spot_prices(start, end, bidding_zone)
+
+        # Calculate expected query length in complete hours
+        query_hours = int((end - start).total_seconds() // 3600)
+
+        # Check response
+        if spot_obs_df.empty or len(spot_obs_df) != query_hours:
+            msg = "There was an issue fetching historical spot prices, try again later (sleep 5 min)"
+
+    # Convert DF to compact datetime-value dictionary (assumes values are in the first column)
+    def df_to_tv_dict(df : pd.DataFrame) -> dict:
+        return (
+            {
+                timestamp.isoformat(): float(value)
+                for timestamp, value in df.iloc[:, 0].items()
+            }
+            if df is not None
+            else {}
+        )
+
+    forecast = df_to_tv_dict(spot_df) 
+    history  = df_to_tv_dict(spot_obs_df)
+
+    payload = {
+                "metadata": {
+                    "message"        : msg,
+                    "bidding_zone"   : bidding_zone,
+                    "forecast_avail" : bool(forecast),
+                    "history_avail"  : bool(history),
+                    "query_time"     : now.isoformat(),
+                },
+                "data": {
+                    "history"  : history,
+                    "forecast" : forecast
+                }
+            }
+
+    # Add response header to indicate the payload should not be cached
+    response.headers["Cache-Control"] = "no-store, no-cache, max-age=0"
+
+    return payload
+
 # Serve website from root
 @api.get("/")
 def serve_website():
@@ -592,9 +697,10 @@ async def favicon():
 if __name__ == "__main__":
     # Use test client for offline debugging, requires httpx package
     from fastapi.testclient import TestClient
+    from pathlib import Path
 
     # Set path to test database
-    DB_PATH = os.getenv("DB_PATH", os.path.abspath("./test_db/forecasts.sqlite"))
+    DB_PATH = Path(os.getenv("DB_PATH", os.path.abspath("./test_db/forecasts.sqlite")))
 
     # Recreate module-level engine so it uses the test DB_PATH
     engine = create_engine(f"sqlite:///{DB_PATH}", future=True, echo=False)
@@ -649,6 +755,16 @@ if __name__ == "__main__":
         response = client.get("/info")
         assert response.status_code == 200
 
+    def test_latest_spot():
+        response = client.get("/spotprice/latest", params={"bidding_zone" : "FI",
+                                                           "query_hours"  : "24"})
+        assert response.status_code == 200
+
+        response = client.get("/spotprice/latest", params={"bidding_zone" : "FI",
+                                                           "query_hours"  : "24",
+                                                           "history_len"  : "2D"})
+        assert response.status_code == 200
+
     try:
         test_batch_upsert_post()
         test_batch_upsert_direct(False)
@@ -657,6 +773,7 @@ if __name__ == "__main__":
         test_forecast()
         test_history()
         test_info()
+        test_latest_spot()
     except Exception as e:
         raise RuntimeError(f"One or more database API tests failed") from e
     finally:
@@ -667,7 +784,8 @@ if __name__ == "__main__":
             if os.path.isfile(p):
                 os.remove(p)
 
-        # Remove test DB dir
-        os.removedirs(DB_PATH.removesuffix(DB_PATH.split("/")[-1]))
+        # Remove test DB dir if it exists
+        if DB_PATH.parent.exists():
+            DB_PATH.parent.rmdir()
 
     print("[DONE] All database and API tests passed successfully!")
