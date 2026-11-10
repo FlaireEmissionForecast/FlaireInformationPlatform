@@ -607,7 +607,8 @@ def latest_spotprice(
     tz           : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
     ):
     """
-    Returns N number (default 24) of latest available day-ahead spot prices for the requested bidding zone.
+    Returns the N latest available day-ahead spot price values (default 24) for the specified bidding zone. 
+    Can optionally be configured to include custom amount of historical values within the same response.
     """
 
     # Init the API to correct timezone
@@ -691,12 +692,14 @@ def latest_spotprice(
 def spotprice_range(
     response     : Response,
     bidding_zone : str = Query(default='FI', description="Bidding zone for which to retrieve latest available spot prices, default is 'FI'"),
-    date_from    : str = Query(..., description="Inclusive start from date for a specific spot-price range. Has to follow ISO 8601 format."),
-    date_to      : str = Query(..., description="Exclusive ending to date for a specific spot-price range. Has to follow ISO 8601 format."),
+    date_from    : str = Query(..., description="Inclusive start from date for a specific spot-price range. Has to follow ISO 8601 format (e.g. '2026-11-05')."),
+    date_to      : str = Query(..., description="Exclusive ending to date for a specific spot-price range. Has to follow ISO 8601 format (e.g. '2026-11-11')."),
     tz           : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
     ):
     """
-    Returns N number (default 24) of latest available day-ahead spot prices for the requested bidding zone.
+    Returns the latest available day-ahead spot prices for the requested bidding zone and date range. 
+    If the requested range extends beyond currently published day-ahead prices, 
+    data is returned up to the latest available date.
     """
     # Convert date strings to timezone aware datetime objects
     start_date = dt.datetime.fromisoformat(date_from)
@@ -716,34 +719,30 @@ def spotprice_range(
     spot_obs_df = None
     spot_fc_df  = None
 
-    # Check if day-ahead spot prices are available i.e. is the current time past 14:30 (high chance they are)
-    now      = dt.datetime.now()
-    tomorrow = dt.datetime.combine((now + dt.timedelta(days=1)), dt.time.min)
-    check    = dt.datetime(now.year, now.month, now.day, 14, 30)
+    # Match timezone awareness of input dates to avoid comparison errors
+    tz_info = start_date.tzinfo
+    now     = dt.datetime.now(tz_info) if tz_info else dt.datetime.now()
+    check   = now.replace(hour=14, minute=30, second=0, microsecond=0)
 
-    # Check if end date is past 14:30 for today, if yes, end date to historical range 
-    # and then create forecast starting point for querying future day-ahead values
-    if end_date >= tomorrow and now > check:
-        # Align time boundary between history and future to midnight
-        adjusted_end = (end_date - dt.timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-            )
-        get_forecast = True
-    # If end date is not past day-ahead delivery, no need to query future values
+    # The history/forecast boundary in principle is always tomorrow
+    forecast_start = dt.datetime.combine(now.date() + dt.timedelta(days=1), dt.time.min, tzinfo=tz_info)
+
+    # Determine the history/forecast boundary and maximum availability of day-ahead values
+    if now > check:
+        max_end_date = forecast_start + dt.timedelta(days=1)
     else:
-        adjusted_end = end_date
-        get_forecast = False
+        max_end_date = forecast_start
 
-    # Query historical spot prices from the ENTSO-E API
-    spot_obs_df = API.get_range_spot_prices(start_date, adjusted_end, bidding_zone)
+    # Query historical/observed spot prices up to the forecast boundary or defined end_date (whichever is earlier)
+    obs_end     = min(end_date, forecast_start)
+    spot_obs_df = API.get_range_spot_prices(start_date, obs_end, bidding_zone)
+    msg = f"Historical day-ahead spot prices available for query range {start_date} -> {obs_end}"
 
-    # Set metadata message
-    msg = f"Historical day-ahead spot prices available for query range {start_date} -> {adjusted_end}"
-
-    # Query day-ahead spot prices separately if needed
-    if get_forecast:
-        spot_fc_df = API.get_range_spot_prices(adjusted_end, end_date, bidding_zone)
-        msg = f"Historical and future day-ahead spot prices available for query range {adjusted_end} -> {end_date}"
+    # Query forecast spot prices if the requested range extends into the future and they are available
+    if now > check and end_date > forecast_start:
+        fc_end     = min(end_date, max_end_date)
+        spot_fc_df = API.get_range_spot_prices(forecast_start, fc_end, bidding_zone)
+        msg = f"Historical and future day-ahead spot prices available for query range {start_date} -> {fc_end}"
 
     # Convert DF to compact datetime-value dictionary
     forecast = _df_to_tv_dict(spot_fc_df) 
@@ -850,14 +849,45 @@ if __name__ == "__main__":
         assert response.status_code == 200
 
     def test_range_spot():
-        response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
-                                                          "date_from"    : "2026-11-02",
-                                                          "date_to"      : "2026-11-10"})
-        assert response.status_code == 200
+        # Past range, historical DA spot values only
+        now_date  = dt.datetime.now().date()
+        from_date = lambda now: now - dt.timedelta(days=7)
+        to_str    = now_date.isoformat()
+        from_str  = from_date(now_date).isoformat()
 
         response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
-                                                          "date_from"    : "2026-11-02",
-                                                          "date_to"      : "2026-11-11"})
+                                                          "date_from"    : from_str,
+                                                          "date_to"      : to_str})
+        assert response.status_code == 200
+
+        # Current range, DA spot values available from yesterdays day-ahead forecast
+        now_date += dt.timedelta(days=1)
+        to_str    = now_date.isoformat()
+        from_str  = from_date(now_date).isoformat()
+
+        response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
+                                                          "date_from"    : from_str,
+                                                          "date_to"      : to_str})
+        assert response.status_code == 200
+
+        # Future range, DA spot values might be available if it is past ~14:30
+        now_date += dt.timedelta(days=1)
+        to_str    = now_date.isoformat()
+        from_str  = from_date(now_date).isoformat()
+
+        response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
+                                                          "date_from"    : from_str,
+                                                          "date_to"      : to_str})
+        assert response.status_code == 200
+
+        # Future range, DA spot values will not be available, request max date must saturate
+        now_date += dt.timedelta(days=1)
+        to_str    = now_date.isoformat()
+        from_str  = from_date(now_date).isoformat()
+
+        response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
+                                                          "date_from"    : from_str,
+                                                          "date_to"      : to_str})
         assert response.status_code == 200
 
     try:
