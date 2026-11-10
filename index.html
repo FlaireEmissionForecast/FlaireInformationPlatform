@@ -254,6 +254,10 @@
 
   <div class="y-scale-button">
     <label>
+      <input type="checkbox" id="spotprice-toggle">
+      Overlay spot price
+    </label>
+    <label>
       <input type="checkbox" id="yAutoscaleToggle">
       Autoscale Y-axis
     </label>
@@ -267,6 +271,7 @@
   const themeToggleButton = document.getElementById('theme-toggle');
   const historySelect = document.getElementById('history-select');
   const seriesButtonsContainer = document.getElementById('series-buttons');
+  const spotPriceToggle = document.getElementById("spotprice-toggle");
   const DEFAULT_TZ = "Europe/Helsinki";
   const DEFAULT_LANG = "EN";
 
@@ -281,6 +286,7 @@
   }
 
   let currentSeriesKey = "consumption_emissions"; // default; will be updated from /info
+  let currentForecastRequest = { mode: "latest", date: null };
 
   // Default to light theme
   let currentTheme = 'light';
@@ -309,7 +315,7 @@
     return field[lang] || field["EN"] || Object.values(field)[0] || "";
   }
 
-  function buildLayout(forecastStart, payloadUnit) {
+  function buildLayout(forecastStart, payloadUnit, showSpotAxis = false) {
     const lightThemeGridColor = '#cccccc';
 
     const shapes = [];
@@ -365,7 +371,17 @@
         title: payloadUnit || "Value",
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
       },
-      margin: { l: 50, r: 40, t: 0, b: 40 },
+      yaxis2: {
+        title: showSpotAxis ? "Spot price (€/MWh)" : "",
+        overlaying: "y",
+        side: "right",
+        anchor: "x",
+        showgrid: false,
+        zeroline: false,
+        automargin: true,
+        visible: showSpotAxis
+      },
+      margin: { l: 50, r: showSpotAxis ? 75 : 40, t: 0, b: 40 },
       autosize: true,
       shapes: shapes
     };
@@ -490,6 +506,85 @@
     };
 
     return [historyBaseline, historyTrace, forecastBaseline, forecastTrace];
+  }
+
+  // The API timestamps are already in local time; just remove the timezone offset.
+  function getForecastTimeRange(payload) {
+    const data = payload.data || {};
+    const timestamps = [
+      ...Object.keys(data.history || {}),
+      ...Object.keys(data.forecast || {})
+    // Remove timezone information for naive timestamps (split at '+')
+    ].map(timestamp => timestamp.split("+")[0]).sort();
+
+    if (!timestamps.length) return null;
+    return { startTime: timestamps[0], endTime: timestamps[timestamps.length - 1] };
+  }
+
+  function makeSpotPriceTraces(payload, range) {
+    const data = payload.data || {};
+    const toEntries = obj => Object.entries(obj || {})
+      .filter(([timestamp]) => {
+        // Remove timezone information for naive timestamps (split at '+')
+        const localTime = timestamp.split("+")[0];
+        return localTime >= range.startTime && localTime <= range.endTime;
+      })
+      .sort();
+
+    const historyEntries = toEntries(data.history);
+    const forecastEntries = toEntries(data.forecast);
+    const traces = [];
+
+    if (historyEntries.length) {
+      traces.push({
+        x: historyEntries.map(e => e[0]),
+        y: historyEntries.map(e => e[1]),
+        type: "scatter",
+        mode: "lines",
+        name: "Spot price (history)",
+        yaxis: "y2",
+        line: { color: "rgb(0, 130, 110)", width: 2, dash: "dash" },
+        hovertemplate: '<b>%{y:.2f} €/MWh</b><extra>Spot price (History)</extra>'
+      });
+    }
+
+    if (forecastEntries.length) {
+      traces.push({
+        x: forecastEntries.map(e => e[0]),
+        y: forecastEntries.map(e => e[1]),
+        type: "scatter",
+        mode: "lines",
+        name: "Spot price (day-ahead)",
+        yaxis: "y2",
+        line: { color: "rgb(0, 170, 140)", width: 2, dash: "dash" },
+        hovertemplate: '<b>%{y:.2f} €/MWh</b><extra>Spot price (Day-ahead)</extra>'
+      });
+    }
+
+    return traces;
+  }
+
+  async function fetchSpotPriceTraces(forecastPayload) {
+    if (!spotPriceToggle.checked) return [];
+
+    const range = getForecastTimeRange(forecastPayload);
+    if (!range) return [];
+
+    const params = new URLSearchParams({
+      date_from: range.startTime,
+      date_to: range.endTime,
+      tz: DEFAULT_TZ
+    });
+
+    try {
+      const payload = await fetchJson(
+        `${API_BASE}/spotprice/range?${params.toString()}`
+      );
+      return makeSpotPriceTraces(payload, range);
+    } catch (error) {
+      console.warn("Could not load spot prices:", error);
+      return [];
+    }
   }
 
   function initHistoryOptionsFromInfo(infoPayload, seriesKey, preserveSelection = false) {
@@ -625,7 +720,10 @@
         return;
       }
 
+      currentForecastRequest = { mode: "date", date: dateStr };
       const traces = makeTracesFromPayload(payload, yAutoscale);
+      const spotTraces = await fetchSpotPriceTraces(payload);
+      traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = formatPrettyDate(forecastStart);
       const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
@@ -633,7 +731,7 @@
       document.getElementById("chart-title").textContent = title;
 
       const payloadUnit = payload.metadata?.unit;
-      const layout = buildLayout(forecastStart, payloadUnit);
+      const layout = buildLayout(forecastStart, payloadUnit, spotTraces.length > 0);
       const config = { responsive: true, displaylogo: false };
       Plotly.react(chartDiv, traces, layout, config);
     } catch (error) {
@@ -659,7 +757,10 @@
         return;
       }
 
+      currentForecastRequest = { mode: "latest", date: null };
       const traces = makeTracesFromPayload(payload, yAutoscale);
+      const spotTraces = await fetchSpotPriceTraces(payload);
+      traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = formatPrettyDate(forecastStart);
       const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
@@ -667,7 +768,7 @@
       document.getElementById("chart-title").textContent = title;
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit);
+      const layout = buildLayout(forecastStart, payloadUnit, spotTraces.length > 0);
       const config = { responsive: true, displaylogo: false };
       Plotly.react(chartDiv, traces, layout, config);
     } catch (error) {
@@ -700,6 +801,14 @@
   });
 
   themeToggleButton.addEventListener('click', toggleTheme);
+
+  spotPriceToggle.addEventListener('change', () => {
+    if (currentForecastRequest.mode === "date") {
+      loadForecastByDate(currentForecastRequest.date);
+    } else {
+      loadLatestForecast();
+    }
+  });
 
   historySelect.addEventListener('change', () => {
     loadLatestForecast();
