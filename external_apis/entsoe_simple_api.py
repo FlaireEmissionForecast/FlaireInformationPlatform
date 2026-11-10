@@ -32,7 +32,7 @@ class entsoeSimpleAPI:
         # Init and try to get data from cache
         Cache = SimpleCache(filepath   = "./data_cache", 
                             value_col  = val_nm, 
-                            history    = '2W', 
+                            history    = '4W', 
                             timezone   = self.tz, 
                             query_freq = rs_freq
                             )
