@@ -29,22 +29,21 @@ class entsoeSimpleAPI:
                          rs_method       : str = "interpolate",
                          **country_codes : str, 
                          ) -> pd.DataFrame:
-        # Init and try to get data from cache
+        
+        # Init simple data cache
         Cache = SimpleCache(filepath   = "./data_cache", 
                             value_col  = val_nm, 
                             history    = '4W', 
                             timezone   = self.tz, 
-                            query_freq = rs_freq
-                            )
+                            query_freq = rs_freq)
 
         # Check if the cache already has data for the queried range, if not, query API and update cache
         if Cache.has_data(start, end):
            print(f"[CACHE] Queried ENTSO-E data \"{val_nm}\" from {start} to {end} loaded from cache")
            return self._clip_to_range(Cache.load(), start, end)
         
-        print(f"[API] Fetching ENTSO-E \"{val_nm}\" data from {start} to {end}...")
-
         # Updated entsoe-py decorators require start and end defined explicitly, otherwise assumed as kwargs
+        print(f"[API] Fetching ENTSO-E \"{val_nm}\" data from {start} to {end}...")
         ds = query_func(**country_codes, start=start, end=end)
 
         if isinstance(ds, pd.Series):
@@ -72,8 +71,8 @@ class entsoeSimpleAPI:
                        start : pd.Timestamp,
                        end   : pd.Timestamp,
                        ) -> pd.DataFrame:
-        """Clip dataframe to the requested time range with inclusive start and exlusive end"""
-        return df.loc[(df.index >= start) & (df.index < end)]
+        """Clip dataframe to the requested time range with inclusive start and end"""
+        return df.loc[(df.index >= start) & (df.index <= end)]
 
     def _get_forecast_time_range(self, start_date : dt.datetime, query_hours : int = 24):
         """Calculates correct start and end dates, localizes to set timezone, 
@@ -95,13 +94,28 @@ class entsoeSimpleAPI:
         
         return start, end
     
-    def _get_observation_time_range(self, start_date : dt.datetime, end_date : dt.datetime):
-        """Localizes to set timezone, converts datetimes to Pandas Timestamp 
-           for UTC aware arithmetics and removes redundant sub-minute precision."""
-        # Localize timestamps and remove redundant precision
-        start = pd.Timestamp(start_date).tz_localize(ZoneInfo(self.tz)).replace(second=0, microsecond=0)
-        end   = pd.Timestamp(end_date).tz_localize(ZoneInfo(self.tz)).replace(second=0, microsecond=0)
-        
+    def _get_observation_time_range(self, start_date: dt.datetime, end_date: dt.datetime):
+        """Localizes naive datetimes or converts timezone-aware datetimes to the
+        configured timezone. Converts to Pandas Timestamps for timezone-aware
+        arithmetic and removes redundant sub-minute precision.
+        """
+        tz = ZoneInfo(self.tz)
+
+        # Localization which works for both timezone aware and naive datetimes/timestamps
+        def normalize(date):
+            timestamp = pd.Timestamp(date)
+
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.tz_localize(tz)
+            else:
+                timestamp = timestamp.tz_convert(tz)
+
+            # Remove redundant sub-minute precision
+            return timestamp.replace(second=0, microsecond=0)
+
+        start = normalize(start_date)
+        end   = normalize(end_date)
+
         return start, end
 
     def get_day_ahead_spot_prices(self,
