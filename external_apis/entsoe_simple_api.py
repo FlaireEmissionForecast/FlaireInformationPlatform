@@ -119,7 +119,7 @@ class entsoeSimpleAPI:
         return start, end
 
     def get_day_ahead_spot_prices(self,
-                                  now_date   : dt.datetime,
+                                  now_date     : dt.datetime,
                                   query_hours  : int = 24,
                                   country_code : str = 'FI',
                                   cache_dir    : str = "./data_cache/",

@@ -96,6 +96,21 @@ def _convert_utc_ts_to_local(ts_str : str, tzinfo : ZoneInfo) -> pd.Timestamp:
     ts = pd.Timestamp(ts_str, tz="UTC")
     return ts.tz_convert(tzinfo)
 
+def _normalize_datetime_str(dt_value : str | dt.datetime, tz : ZoneInfo) -> dt.datetime:
+    timestamp = pd.Timestamp(dt_value)
+
+    if timestamp.tz is None:
+        timestamp = timestamp.tz_localize(
+            tz,
+            ambiguous="raise",
+            nonexistent="raise"
+        )
+    else:
+        timestamp = timestamp.tz_convert(tz)
+
+    return timestamp.to_pydatetime()
+
+
 def _get_metrics(run_id : str, conn : Connection):
     m = conn.execute(text("SELECT metrics_json FROM metrics WHERE run_id=:r"), {"r": run_id}).mappings().first()
     metrics = {}
@@ -610,18 +625,20 @@ def latest_spotprice(
     Returns the N latest available day-ahead spot price values (default 24) for the specified bidding zone. 
     Can optionally be configured to include custom amount of historical values within the same response.
     """
+    # Init timezone information object
+    zoneinfo = ZoneInfo(tz)
 
     # Init the API to correct timezone
     API = entsoeSimpleAPI(tz)
 
     # Set datetime to current time and date
-    now = dt.datetime.now()
+    now = dt.datetime.now(zoneinfo)
 
     # Init response to none for possible zero responses (ENTSO-E API issues etc.)
     spot_fc_df = None
 
     # Check if day-ahead spot prices are available i.e. is the current time past 14:30 (high chance they are)
-    check = dt.datetime(now.year, now.month, now.day, 14, 30)
+    check = now.replace(hour=14, minute=30, second=0, microsecond=0)
 
     # Check if past 14:30 for today, if not, adjust query on day backwards 
     # for the latest available DA prices i.e. yesterdays prices for today
@@ -701,9 +718,16 @@ def spotprice_range(
     If the requested range extends beyond currently published day-ahead prices, 
     data is returned up to the latest available date.
     """
+    # Init timezone information object
+    zoneinfo = ZoneInfo(tz)
+
     # Convert date strings to timezone aware datetime objects
-    start_date = dt.datetime.fromisoformat(date_from)
-    end_date   = dt.datetime.fromisoformat(date_to)
+    start_date = _normalize_datetime_str(date_from, zoneinfo)
+    end_date   = _normalize_datetime_str(date_to,   zoneinfo)
+
+    # Create a current time object in the same timezone
+    now   = dt.datetime.now(zoneinfo)
+    check = now.replace(hour=14, minute=30, second=0, microsecond=0)
 
     # Check date range validity
     if start_date is None or end_date is None or end_date <= start_date:
@@ -719,13 +743,8 @@ def spotprice_range(
     spot_obs_df = None
     spot_fc_df  = None
 
-    # Match timezone awareness of input dates to avoid comparison errors
-    tz_info = start_date.tzinfo
-    now     = dt.datetime.now(tz_info) if tz_info else dt.datetime.now()
-    check   = now.replace(hour=14, minute=30, second=0, microsecond=0)
-
     # The history/forecast boundary in principle is always tomorrow
-    forecast_start = dt.datetime.combine(now.date() + dt.timedelta(days=1), dt.time.min, tzinfo=tz_info)
+    forecast_start = dt.datetime.combine(now.date() + dt.timedelta(days=1), dt.time.min, zoneinfo)
 
     # Determine the history/forecast boundary and maximum availability of day-ahead values
     if now > check:
@@ -748,13 +767,16 @@ def spotprice_range(
     forecast = _df_to_tv_dict(spot_fc_df) 
     history  = _df_to_tv_dict(spot_obs_df)
 
+    # Get query time in defined timezone
+    query_time = now.replace(microsecond=0).isoformat()
+
     payload = {
                 "metadata": {
                     "message"        : msg,
                     "bidding_zone"   : bidding_zone,
                     "forecast_avail" : bool(forecast),
                     "history_avail"  : bool(history),
-                    "query_time"     : now.isoformat(),
+                    "query_time"     : query_time,
                 },
                 "data": {
                     "history"  : history,
@@ -870,7 +892,17 @@ if __name__ == "__main__":
                                                           "date_to"      : to_str})
         assert response.status_code == 200
 
-        # Future range, DA spot values might be available if it is past ~14:30
+        # Partial Future range, DA spot values might be available if it is past ~14:30 
+        # and query dates have specific hours
+        to_str    = now_date.isoformat() + "T15:00:00"
+        from_str  = from_date(now_date).isoformat() + "T14:00:00"
+
+        response = client.get("/spotprice/range", params={"bidding_zone" : "FI",
+                                                          "date_from"    : from_str,
+                                                          "date_to"      : to_str})
+        assert response.status_code == 200
+
+        # Full future range, DA spot values might be available if it is past ~14:30
         now_date += dt.timedelta(days=1)
         to_str    = now_date.isoformat()
         from_str  = from_date(now_date).isoformat()
