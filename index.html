@@ -12,7 +12,7 @@
   <style>
     /* Fluid typography for headings */
     :root {
-      --heading-fluid: clamp(24px, 4.5vw, 36px);
+      --heading-fluid: clamp(22px, 4.5vw, 36px);
     }
 
     /* Default light theme styles */
@@ -70,7 +70,7 @@
     h2 {
       font-weight: 350;
       margin: 0;
-      font-size: max(var(--heading-fluid) - 12px, 20px);
+      font-size: max(var(--heading-fluid) - 12px, 18px);
     }
 
     .controls {
@@ -404,6 +404,44 @@
         max-width: 140px;
         padding: 4px 8px;
         font-size: 14px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .controls-time {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: auto;
+        max-width: 100%;
+        gap: 8px;
+      }
+
+      .control-field {
+        width: min(100%, 290px);
+        justify-content: space-between;
+      }
+
+      .controls-action {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        align-items: stretch;
+        width: 100%;
+        max-width: 520px;
+        margin: 0 auto;
+        gap: 8px;
+      }
+
+      .controls-action button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 0;
+        box-sizing: border-box;
+        padding: 7px 5px;
+        font-size: 14px;
+        line-height: 1.2;
+        text-align: center;
       }
     }
 
