@@ -651,7 +651,8 @@ def latest_spotprice(
     # Query day-ahead spot prices from the ENTSO-E API
     spot_fc_df = API.get_day_ahead_spot_prices(now, query_hours, bidding_zone)
 
-    if spot_fc_df.empty or len(spot_fc_df) != query_hours:
+    # BUG: With inclusive end, the query can result in 25 hours also!
+    if spot_fc_df.empty or spot_fc_df is None:
         msg = "There was an issue fetching day-ahead spot prices, try again later (sleep 5 min)"
         spot_fc_df = None
     elif fallback:
@@ -709,8 +710,8 @@ def latest_spotprice(
 def spotprice_range(
     response     : Response,
     bidding_zone : str = Query(default='FI', description="Bidding zone for which to retrieve latest available spot prices, default is 'FI'"),
-    date_from    : str = Query(..., description="Inclusive start from date for a specific spot-price range. Has to follow ISO 8601 format (e.g. '2026-11-05')."),
-    date_to      : str = Query(..., description="Exclusive ending to date for a specific spot-price range. Has to follow ISO 8601 format (e.g. '2026-11-11')."),
+    date_from    : str = Query(..., description="Inclusive start from date for a specific spot-price range. Has to follow ISO 8601 format (e.g. '2026-11-05T12:00')."),
+    date_to      : str = Query(..., description="Inclusive ending to date for a specific spot-price range. Has to follow ISO 8601 format (e.g. '2026-11-11T12:00')."),
     tz           : str = Query(default=DEFAULT_TZ,  description=f"Desired timezone of the query output, defaults to {DEFAULT_TZ}"),
     ):
     """
@@ -752,13 +753,21 @@ def spotprice_range(
     else:
         max_end_date = forecast_start
 
+    # Determine if the requested range extends into the future and if day-ahead prices are available
+    forecast_requested = now > check and end_date > forecast_start
+
+    # If a forecast is requested, the inclusive end date of the query must be adjusted to avoid overlap with forecast query start date
+    if forecast_requested:
+        obs_end = min(end_date, forecast_start - dt.timedelta(seconds=1))
+    else:
+        obs_end = min(end_date, forecast_start)
+
     # Query historical/observed spot prices up to the forecast boundary or defined end_date (whichever is earlier)
-    obs_end     = min(end_date, forecast_start)
     spot_obs_df = API.get_range_spot_prices(start_date, obs_end, bidding_zone)
     msg = f"Historical day-ahead spot prices available for query range {start_date} -> {obs_end}"
 
     # Query forecast spot prices if the requested range extends into the future and they are available
-    if now > check and end_date > forecast_start:
+    if forecast_requested:
         fc_end     = min(end_date, max_end_date)
         spot_fc_df = API.get_range_spot_prices(forecast_start, fc_end, bidding_zone)
         msg = f"Historical and future day-ahead spot prices available for query range {start_date} -> {fc_end}"

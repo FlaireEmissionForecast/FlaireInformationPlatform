@@ -1,7 +1,7 @@
 ### Common utility methods for all APIs ###
 import os
-import pytz
 import pandas as pd
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 def get_env_var(key : str):
     """
@@ -41,32 +41,40 @@ def clean_and_infer_freq(df):
 
     return df
 
-def set_datetime_index(value_col_nm : str, df_in : pd.DataFrame, tz_in = None, 
-                       date_col : int = 0, value_col : int = 1):
-    """Parse and rebuild the dataframe to ensure correct shape, index format and UTC offset"""
-    # Datetime index name is hardcoded
+def set_datetime_index(value_col_nm : str, 
+                       df_in        : pd.DataFrame,
+                       tz_in        : str | ZoneInfo = None,
+                       date_col     : int = 0,
+                       value_col    : int = 1
+                       ):
+    """Parse and rebuild the dataframe to ensure correct shape, index format and timezone."""
+
     date_col_nm = "date_time"
 
-    # Ensure the datetime column is parsed and UTC-localized immediately
-    dt_series = pd.to_datetime(df_in.iloc[:, date_col], utc=True, errors='coerce')
+    # Parse timestamps and normalize to UTC
+    dt_series = pd.to_datetime(
+        df_in.iloc[:, date_col],
+        utc=True,
+        errors="coerce"
+        )
 
-    # Convert to desired timezone, if specified and not UTC
-    if tz_in and tz_in != "UTC":
+    # Convert to desired timezone, if specified
+    if tz_in:
         try:
-            timezone = pytz.timezone(tz_in)
+            timezone = ZoneInfo(tz_in) if isinstance(tz_in, str) else tz_in
             dt_series = dt_series.dt.tz_convert(timezone)
-        except pytz.UnknownTimeZoneError:
+
+        except ZoneInfoNotFoundError:
             print(f"Warning: Unknown timezone '{tz_in}'. Keeping timestamps in UTC.")
 
-    # Build output DataFrame
-    df_out = pd.DataFrame({date_col_nm  : dt_series,
-                           value_col_nm : df_in.iloc[:, value_col]})
+        # Build output DataFrame
+        df_out = pd.DataFrame({
+            date_col_nm  : dt_series,
+            value_col_nm : df_in.iloc[:, value_col]
+            })
 
-    # Set converted datetime as index
+    # Set datetime index
     df_out = df_out.set_index(date_col_nm)
-
-    # Set index frequency
-    # df_out = clean_and_infer_freq(df_out)
 
     return df_out.sort_index()
 

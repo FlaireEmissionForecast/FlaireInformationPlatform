@@ -14,7 +14,8 @@ class SimpleCache:
         self.filepath      = Path(filepath, f"entsoe_{value_col}.csv")
         self.value_col     = value_col
         self.history_hours = int(pd.Timedelta(history).total_seconds() / 3600)
-        self.timezone      = ZoneInfo(timezone)
+        # Accepts both string and ZoneInfo type timezone info with strings translated to ZoneInfo objects
+        self.timezone      = ZoneInfo(timezone) if isinstance(timezone, str) else timezone
         self.query_freq    = query_freq
 
         if self.history_hours <= 0:

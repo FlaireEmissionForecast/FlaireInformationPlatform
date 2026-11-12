@@ -18,7 +18,7 @@ ENTSOE_API_KEY = get_env_var("ENTSOE_SECURITY_TOKEN")
 class entsoeSimpleAPI:
     def __init__(self, timezone="UTC"):
         self.client = EntsoePandasClient(api_key=ENTSOE_API_KEY)
-        self.tz     = timezone
+        self.tz     = ZoneInfo(timezone)
 
     def _get_entsoe_data(self,
                          val_nm          : str, 
@@ -41,10 +41,14 @@ class entsoeSimpleAPI:
         if Cache.has_data(start, end):
            print(f"[CACHE] Queried ENTSO-E data \"{val_nm}\" from {start} to {end} loaded from cache")
            return self._clip_to_range(Cache.load(), start, end)
+
+        # Add one resample frequency offset to the end to ensure inclusive end is covered 
+        # even with sub-hourly data and then subtract one second to avoid overlap with the next hour
+        end_adj = end + pd.Timedelta(rs_freq) - pd.Timedelta(seconds=1)
         
         # Updated entsoe-py decorators require start and end defined explicitly, otherwise assumed as kwargs
         print(f"[API] Fetching ENTSO-E \"{val_nm}\" data from {start} to {end}...")
-        ds = query_func(**country_codes, start=start, end=end)
+        ds = query_func(**country_codes, start = start, end = end_adj)
 
         if isinstance(ds, pd.Series):
             df = ds.to_frame().reset_index()
@@ -79,36 +83,40 @@ class entsoeSimpleAPI:
            converts datetimes to Pandas Timestamp for UTC aware arithmetics and
            removes redundant sub-minute precision."""
         # Convert to timezone-aware Pandas timestamps for ENSTSO-E API client
-        start = pd.Timestamp(start_date).tz_localize(ZoneInfo(self.tz))
+        # And remove redundant sub-minute accuracy
+        start = pd.Timestamp(start_date).replace(second=0, microsecond=0)
 
-        # Remove minutes to always get current hour DA spot price
-        start = start.replace(minute=0, second=0, microsecond=0)
-
-        # Pandas calculates deltas with DST-aware arithmetic by default, so this works even during DST transitions
+        # Pandas calculates deltas with DST-aware arithmetic by default
+        # This should work even during DST transitions
         if query_hours == 24:
-            # Next tz aware midnight, accounting for DST
+            # Next tz aware midnight, accounting for DST trasitions
+            # Can result in 23, 24, or 25 hours during DST transition
             end = (start.normalize() + pd.DateOffset(days=1))
         else:
-            # Explicit elapsed-hour query
+            # Explicit elapsed-hour query 
             end = start + pd.Timedelta(hours=query_hours)
+
+        # Remove one hour from end as ENTSO-E client queries are end-inclusive
+        end -= pd.Timedelta(hours=1)
+
+        # Calculate expected length of the returned data for validation
+        exp_len = int((end - start) / pd.Timedelta(hours=1)) + 1
         
-        return start, end
-    
+        return start, end, exp_len
+
     def _get_observation_time_range(self, start_date: dt.datetime, end_date: dt.datetime):
         """Localizes naive datetimes or converts timezone-aware datetimes to the
         configured timezone. Converts to Pandas Timestamps for timezone-aware
         arithmetic and removes redundant sub-minute precision.
         """
-        tz = ZoneInfo(self.tz)
-
         # Localization which works for both timezone aware and naive datetimes/timestamps
         def normalize(date):
             timestamp = pd.Timestamp(date)
 
             if timestamp.tzinfo is None:
-                timestamp = timestamp.tz_localize(tz)
+                timestamp = timestamp.tz_localize(self.tz)
             else:
-                timestamp = timestamp.tz_convert(tz)
+                timestamp = timestamp.tz_convert(self.tz)
 
             # Remove redundant sub-minute precision
             return timestamp.replace(second=0, microsecond=0)
@@ -124,7 +132,7 @@ class entsoeSimpleAPI:
                                   country_code : str = 'FI',
                                   cache_dir    : str = "./data_cache/",
                                   use_cache    : bool = True
-                                  ) -> pd.DataFrame:
+                                  ) -> pd.DataFrame | None:
         """
         Fetches day-ahead electricity prices for a specified country and time range.
         This method retrieves day-ahead electricity prices from the ENTSO-E API for a given country
@@ -146,10 +154,13 @@ class entsoeSimpleAPI:
             - If caching is enabled and the cache file does not exist, the fetched data is saved to the cache.
         """
         # Add one day to the current date for a day-ahead query (date() sets the time at day boundary)
-        start_date = now_date.date() + dt.timedelta(days=1)
+        start_date_no_tz = now_date.date() + dt.timedelta(days=1)
+
+        # Introduce correct timezone information back as date() drops it
+        start_date = dt.datetime.combine(start_date_no_tz, dt.time.min, self.tz)
 
         # Format and localize time range for forecast query
-        start, end = self._get_forecast_time_range(start_date, query_hours)
+        start, end, exp_len = self._get_forecast_time_range(start_date, query_hours)
 
         # Create value name
         val_type   = "spot_da"
@@ -162,6 +173,10 @@ class entsoeSimpleAPI:
                                        self.client.query_day_ahead_prices, 
                                        '1h',
                                        country_code = country_code)
+
+        # Check the query returned the expected number of values
+        if len(res_df) != exp_len:
+            return None
         
         # Get data from cache for the requested range
         return res_df
