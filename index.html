@@ -956,6 +956,12 @@
     const forecastEntries = toEntries(data.forecast);
     const traces = [];
 
+    // Connect history and day-ahead traces by adding first forecast point to history
+    if (historyEntries.length > 0 && forecastEntries.length > 0) {
+      const firstForecast = forecastEntries[0];
+      historyEntries.push(firstForecast);
+    }
+
     if (historyEntries.length) {
       traces.push({
         x: historyEntries.map(e => e[0]),
@@ -1216,6 +1222,7 @@
         displayModeBar: false
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
+      attachRangeSliderHoverHandler();
       setChartLoading(false);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load forecast data. ${error.message}</p>`;
@@ -1261,6 +1268,7 @@
         displayModeBar: false,
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
+      attachRangeSliderHoverHandler();
       setChartLoading(false);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load latest forecast. ${error.message}</p>`;
@@ -1281,6 +1289,25 @@
       'xaxis.gridcolor': newGridColor,
       'yaxis.gridcolor': newGridColor
     });
+  }
+
+  function clearHoverOnRangeSlider(eventData) {
+      // Range-slider updates use an array for xaxis.range
+      if (Array.isArray(eventData["xaxis.range"])) {
+          Plotly.Fx.unhover(chartDiv);
+      }
+  }
+
+  function attachRangeSliderHoverHandler() {
+      // Prevent duplicate handlers
+      if (typeof chartDiv.removeListener === "function") {
+          chartDiv.removeListener(
+              "plotly_relayout",
+              clearHoverOnRangeSlider
+          );
+      }
+
+      chartDiv.on("plotly_relayout", clearHoverOnRangeSlider);
   }
 
   function toggleFullscreen() {
@@ -1323,6 +1350,13 @@
   yAutoscaleToggle.addEventListener('change', () => {
     yAutoscale = yAutoscaleToggle.checked;
     loadLatestForecast();
+  });
+
+  // Clear sticky Plotly hover labels when clicking/touching outside the chart
+  document.addEventListener("pointerdown", (event) => {
+      if (!chartDiv.contains(event.target)) {
+          Plotly.Fx.hover(chartDiv, []);
+      }
   });
 
   // document.addEventListener('fullscreenchange', () => {
