@@ -8,7 +8,10 @@
   <link rel="icon" href="https://flaire.fi/wp-content/uploads/2024/01/cropped-flaire-favicon-192x192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="https://flaire.fi/wp-content/uploads/2024/01/cropped-flaire-favicon-180x180.png" />
   <meta name="msapplication-TileImage" content="https://flaire.fi/wp-content/uploads/2024/01/cropped-flaire-favicon-270x270.png" />
-   <script src="https://cdn.plot.ly/plotly-4.3.0.min.js" charset="utf-8"></script>
+  <script defer
+          src="https://cdn.plot.ly/plotly-basic-4.3.0.min.js"
+          charset="utf-8">
+  </script>
   <style>
     /* Fluid typography for headings */
     :root {
@@ -70,7 +73,7 @@
     h2 {
       font-weight: 350;
       margin: 0;
-      font-size: max(var(--heading-fluid) - 12px, 18px);
+      font-size: max(var(--heading-fluid) - 10px, 16px);
     }
 
     .controls {
@@ -176,50 +179,117 @@
 
       width: 100%;
       max-width: 1000px;
-      height: calc(clamp(340px, 50vh, 600px) + var(--spot-extra-height));
+      height: calc(clamp(300px, 55vh, 700px) + var(--spot-extra-height));
       position: relative;
     }
 
     #chart-container.has-spotprices {
-      --spot-extra-height: clamp(0px, calc((700px - 100vw) * 0.33), 120px);
+      --spot-extra-height: clamp(0px, calc((700px - 100vw) * 0.25), 100px);
+    }
+
+    /* General chart loading overlay */
+    #chart-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 90;
+
+        display: flex;
+        flex-direction: row-reverse;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+
+        background: rgba(244, 244, 249, 0.88);
+        color: #333;
+
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    #chart-loading.is-hidden {
+        display: none;
+    }
+
+    /* Loading spinner */
+    .chart-loading-spinner {
+        width: 22px;
+        height: 22px;
+        border: 4px solid rgba(74, 144, 226, 0.2);
+        border-top-color: #4a90e2;
+        border-radius: 50%;
+        animation: chart-loading-spin 0.8s linear infinite;
+    }
+
+    @keyframes chart-loading-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+    #chart-loading::before {
+        animation: none;
+      }
+    }
+
+    /* Dark theme */
+    body.dark-theme #chart-loading {
+        background: rgba(17, 17, 17, 0.88);
+        color: #eee;
     }
 
     #spotprice-loading {
-      display: none;
-      position: absolute;
-      inset: 0;
-      align-items: center;
-      justify-content: center;
-      background: rgba(244, 244, 249, 0.7);
-      color: #333;
-      z-index: 100;
-      pointer-events: auto;
-      cursor: wait;
-      font-size: 18px;
-      font-weight: bold;
+        display: none;
+        position: absolute;
+        inset: 0;
+        flex-direction: row-reverse;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+
+        background: rgba(244, 244, 249, 0.7);
+        color: #333;
+
+        z-index: 100;
+        pointer-events: auto;
+        cursor: wait;
+        font-size: 16px;
+        font-weight: 600;
     }
 
     body.dark-theme #spotprice-loading {
-      background: rgba(17, 17, 17, 0.7);
-      color: #eee;
+        background: rgba(17, 17, 17, 0.7);
+        color: #eee;
     }
 
     #spotprice-loading.visible {
-      display: flex;
+        display: flex;
     }
 
-    #spotprice-loading::after {
-      content: "";
-      width: 1.5em;
-      text-align: left;
-      animation: spotprice-dots 1.5s steps(4, end) infinite;
+    /* Spinner */
+    #spotprice-loading::before {
+        content: "";
+        width: 22px;
+        height: 22px;
+        flex-shrink: 0;
+
+        border: 4px solid rgba(74, 144, 226, 0.2);
+        border-top-color: #4a90e2;
+        border-radius: 50%;
+
+        animation: spotprice-spin 0.8s linear infinite;
     }
 
-    @keyframes spotprice-dots {
-      0%   { content: ""; }
-      25%  { content: "."; }
-      50%  { content: ".."; }
-      75%, 100% { content: "..."; }
+    @keyframes spotprice-spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        #spotprice-loading::before {
+            animation: none;
+        }
     }
 
     /* Dark theme styles */
@@ -270,7 +340,7 @@
       color: #333;
       font: inherit;
       font-size: 16px;
-      font-weight: 600;
+      font-weight: 500;
       text-align: left;
       cursor: pointer;
     }
@@ -282,11 +352,13 @@
 
     .drawer-chevron {
       display: inline-block;
+      font-size: 22px;
+      line-height: 0;
       transition: transform 0.3s ease;
     }
 
     .control-drawer.is-open .drawer-chevron {
-      transform: rotate(180deg);
+      transform: rotateX(180deg);
     }
 
     body.dark-theme .drawer-toggle {
@@ -478,7 +550,7 @@
       aria-controls="drawer-content"
     >
       <span>Chart controls</span>
-      <span class="drawer-chevron" aria-hidden="true">▾</span>
+      <span class="drawer-chevron" aria-hidden="true">⌵</span>
     </button>
 
     <div class="drawer-content" id="drawer-content">
@@ -514,6 +586,12 @@
 
   <div id="chart-container">
     <div id="chart" style="width:100%;height:100%;"></div>
+
+    <div id="chart-loading" role="status" aria-live="polite">
+      <span class="chart-loading-spinner" aria-hidden="true"></span>
+      <span id="chart-loading-message">Loading chart library…</span>
+    </div>
+
     <div id="spotprice-loading" aria-live="polite">Loading spot price data</div>
   </div>
 
@@ -534,6 +612,8 @@
 
   <script>
   const chartDiv = document.getElementById('chart');
+  const chartLoading = document.getElementById("chart-loading");
+  const chartLoadingMessage = document.getElementById("chart-loading-message");
   const forecastDateInput = document.getElementById('forecast-date');
   const loadButton = document.getElementById('load-button');
   const latestButton = document.getElementById('latest-button');
@@ -565,6 +645,19 @@
 
   // Default to light theme
   let currentTheme = 'light';
+
+  function setChartLoading(loading, message) {
+      if (!chartLoading || !chartLoadingMessage) {
+          console.warn("Chart loading elements not found.");
+          return;
+      }
+
+      if (message) {
+          chartLoadingMessage.textContent = message;
+      }
+
+      chartLoading.classList.toggle("is-hidden", !loading);
+  }
 
   function setControlsDrawerOpen(open) {
     controlsDrawer.classList.toggle("is-open", open);
@@ -676,7 +769,7 @@
       },
 
       xaxis: {
-        title: "Time",
+        title: { text : "Time" },
         tickangle: 0,
         tickformat: "%H:%M<br>%d.%m.%y",
         rangeslider: { visible: true },
@@ -684,22 +777,25 @@
       },
       yaxis: {
         autorange: true,
-        title: payloadUnit || "Value",
+        automargin: true,
+        title: { text: payloadUnit || "Value" },
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
       },
       yaxis2: {
-        title: showSpotAxis ? "Spot price (€/MWh)" : "",
+        title: { text: showSpotAxis ? "Spot price (€/MWh)" : "" },
         overlaying: "y",
         side: "right",
         anchor: "x",
+        tickmode: "auto",
         showgrid: false,
         zeroline: false,
         automargin: true,
+        autorange: true,
         visible: showSpotAxis
       },
       margin: { 
         l: 40, 
-        r: showSpotAxis ? 50 : 20, 
+        r: showSpotAxis ? 45 : 20, 
         t: 0,
         b: 40 
       },
@@ -1010,6 +1106,7 @@
   }
 
   function initSeriesButtons(infoPayload) {
+    setChartLoading(true, "Loading forecast…");
     seriesButtonsContainer.innerHTML = "";
 
     infoPayload.series.forEach((s, idx) => {
@@ -1075,6 +1172,7 @@
   }
 
   async function loadForecastByDate(dateStr) {
+    setChartLoading(true, "Loading forecast…");
     if (!dateStr) {
       chartDiv.innerHTML = `<p style="color:red;">Please select a forecast date.</p>`;
       return;
@@ -1118,9 +1216,11 @@
         displayModeBar: false
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
+      setChartLoading(false);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load forecast data. ${error.message}</p>`;
       console.error("Error loading forecast by date:", error);
+      setChartLoading(false);
     }
   }
 
@@ -1161,9 +1261,11 @@
         displayModeBar: false,
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
+      setChartLoading(false);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load latest forecast. ${error.message}</p>`;
       console.error("Error loading latest forecast:", error);
+      setChartLoading(false);
     }
   }
 
@@ -1228,6 +1330,7 @@
   // });
 
   async function initialize() {
+    setChartLoading(true, "Loading forecast options…");
     const today = new Date();
     forecastDateInput.value = formatDate(today);
 
@@ -1241,7 +1344,16 @@
     await loadLatestForecast();
   }
 
-  initialize();
+  document.addEventListener("DOMContentLoaded", () => {
+      if (!window.Plotly) {
+          setChartLoading(false);
+          chartDiv.textContent =
+              "Could not load the chart library. Please check your connection and reload the page.";
+          return;
+      }
+
+      initialize();
+  }, { once: true });
 </script>
 </body>
 </html>
