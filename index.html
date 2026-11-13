@@ -168,10 +168,6 @@
       font-size: 16px;
     }
 
-    #chart {
-      touch-action: none;
-    }
-
     #chart-title {
       margin: 0 0 15px 0;
       font-weight: 350;
@@ -752,7 +748,6 @@
       plot_bgcolor: 'rgba(0,0,0,0)',
 
       hovermode: "x unified",
-      dragmode: false,
 
       legend: {
         orientation: 'h',
@@ -1316,6 +1311,140 @@
 
       chartDiv.on("plotly_relayout", clearHoverOnRangeSlider);
   }
+  // --- Touch scrubbing with double-tap zoom reset ---
+  let touchScrubbing = false;
+  let lastTapTime = 0;
+  let lastTapX = 0;
+  let lastTapY = 0;
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchMoved = false;
+
+  function getTouchPlotPosition(touch) {
+      const plotArea = chartDiv.querySelector(".nsewdrag");
+      if (!plotArea) return null;
+
+      const rect = plotArea.getBoundingClientRect();
+
+      return {
+          xpx: touch.clientX - rect.left,
+          ypx: touch.clientY - rect.top
+      };
+  }
+
+  // Touch start
+  chartDiv.addEventListener("touchstart", event => {
+      if (event.touches.length !== 1) return;
+
+      const touch = event.touches[0];
+      const plotArea = chartDiv.querySelector(".nsewdrag");
+
+      if (!plotArea) return;
+
+      const rect = plotArea.getBoundingClientRect();
+
+      // Only handle touches inside the main plotting area
+      if (
+          touch.clientX < rect.left ||
+          touch.clientX > rect.right ||
+          touch.clientY < rect.top ||
+          touch.clientY > rect.bottom
+      ) return;
+
+      // Detect double tap to reset zoom
+      const now = Date.now();
+
+      if (
+          now - lastTapTime < 400 &&
+          Math.hypot(
+              touch.clientX - lastTapX,
+              touch.clientY - lastTapY
+          ) < 30
+      ) {
+          lastTapTime = 0;
+          touchScrubbing = false;
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          Plotly.relayout(chartDiv, {
+              "xaxis.autorange": true,
+              "yaxis.autorange": true,
+              "yaxis2.autorange": true
+          });
+
+          Plotly.Fx.unhover(chartDiv);
+          return;
+      }
+
+      // Record starting position for movement detection
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      touchMoved = false;
+
+      touchScrubbing = true;
+
+      // Prevent Plotly's normal drag-to-zoom handler
+      event.preventDefault();
+      event.stopPropagation();
+
+      const pos = getTouchPlotPosition(touch);
+
+      if (pos) {
+          Plotly.Fx.hover(chartDiv, pos);
+      }
+
+  }, { capture: true, passive: false });
+
+  // Touch move
+  chartDiv.addEventListener("touchmove", event => {
+      if (!touchScrubbing || event.touches.length !== 1) return;
+
+      const touch = event.touches[0];
+
+      // Detect actual movement
+      if (
+          Math.hypot(
+              touch.clientX - touchStartX,
+              touch.clientY - touchStartY
+          ) > 10
+      ) {
+          touchMoved = true;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const pos = getTouchPlotPosition(touch);
+
+      if (pos) {
+          Plotly.Fx.hover(chartDiv, pos);
+      }
+
+  }, { passive: false });
+
+  // Touch end
+  document.addEventListener("touchend", event => {
+      if (
+          touchScrubbing &&
+          !touchMoved &&
+          event.changedTouches.length
+      ) {
+          const touch = event.changedTouches[0];
+
+          lastTapTime = Date.now();
+          lastTapX = touch.clientX;
+          lastTapY = touch.clientY;
+      }
+
+      touchScrubbing = false;
+  });
+
+  // Touch cancel
+  document.addEventListener("touchcancel", () => {
+      touchScrubbing = false;
+      lastTapTime = 0;
+  });
 
   function toggleFullscreen() {
     if (!document.fullscreenElement) {
