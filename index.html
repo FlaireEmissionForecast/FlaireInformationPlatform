@@ -8,7 +8,7 @@
   <link rel="icon" href="https://flaire.fi/wp-content/uploads/2024/01/cropped-flaire-favicon-192x192.png" sizes="192x192" />
   <link rel="apple-touch-icon" href="https://flaire.fi/wp-content/uploads/2024/01/cropped-flaire-favicon-180x180.png" />
   <meta name="msapplication-TileImage" content="https://flaire.fi/wp-content/uploads/2024/01/cropped-flaire-favicon-270x270.png" />
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+   <script src="https://cdn.plot.ly/plotly-4.3.0.min.js" charset="utf-8"></script>
   <style>
     /* Fluid typography for headings */
     :root {
@@ -172,10 +172,16 @@
     }
 
     #chart-container {
+      --spot-extra-height: 0px;
+
       width: 100%;
       max-width: 1000px;
-      height: clamp(340px, 50vh, 600px);
+      height: calc(clamp(340px, 50vh, 600px) + var(--spot-extra-height));
       position: relative;
+    }
+
+    #chart-container.has-spotprices {
+      --spot-extra-height: clamp(0px, calc((700px - 100vw) * 0.33), 120px);
     }
 
     #spotprice-loading {
@@ -653,9 +659,9 @@
       legend: {
         orientation: 'h',
         x: 0.5,
-        y: 1.15,
+        y: 1.02,
         xanchor: 'center',
-        yanchor: 'top',
+        yanchor: 'bottom',
         bgcolor:
           currentTheme === "dark"
             ? "rgba(0,0,0,0.4)"
@@ -671,6 +677,8 @@
 
       xaxis: {
         title: "Time",
+        tickangle: 0,
+        tickformat: "%H:%M<br>%d.%m.%y",
         rangeslider: { visible: true },
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
       },
@@ -689,7 +697,12 @@
         automargin: true,
         visible: showSpotAxis
       },
-      margin: { l: 40, r: showSpotAxis ? 50 : 20, t: 0, b: 40 },
+      margin: { 
+        l: 40, 
+        r: showSpotAxis ? 50 : 20, 
+        t: 0,
+        b: 40 
+      },
       autosize: true,
       shapes: shapes
     };
@@ -724,9 +737,11 @@
           name: "History",
           legendrank: 1,
           showlegend: true,
+          meta: { unit: unit },
           fill: "tozeroy",
           fillcolor: "rgba(74,144,226,0.1)",
-          line: { color: "rgb(74,144,226)", width: 3, shape: "spline" }
+          line: { color: "rgb(74,144,226)", width: 3, shape: "spline" },
+          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>'
         };
        const forecastTrace = {
           x: forecastEntries.map(e => e[0]),
@@ -736,9 +751,11 @@
           name: "Forecast",
           legendrank: 2,
           showlegend: true,
+          meta: { unit: unit },
           fill: "tozeroy",
           fillcolor: "rgba(255,140,0,0.1)",
-          line: { color: "rgb(255,140,0)", width: 3, shape: "spline" }
+          line: { color: "rgb(255,140,0)", width: 3, shape: "spline" },
+          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
         };
       return [historyTrace, forecastTrace];
     }
@@ -1083,15 +1100,18 @@
       currentForecastRequest = { mode: "date", date: dateStr };
       const traces = makeTracesFromPayload(payload, yAutoscale);
       const spotTraces = await fetchSpotPriceTraces(payload);
+      const showSpotPrices = spotTraces.length > 0
       traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = formatPrettyDate(forecastStart);
       const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
       const title = `${seriesName.charAt(0).toUpperCase() + seriesName.slice(1)} for ${titleDate}`;
+
       document.getElementById("chart-title").textContent = title;
+      document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, spotTraces.length > 0);
+      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
       const config = { 
         responsive: true, 
         displaylogo: false, 
@@ -1124,15 +1144,17 @@
       currentForecastRequest = { mode: "latest", date: null };
       const traces = makeTracesFromPayload(payload, yAutoscale);
       const spotTraces = await fetchSpotPriceTraces(payload);
+      const showSpotPrices = spotTraces.length > 0
       traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = formatPrettyDate(forecastStart);
       const seriesName = getLangVer(payload.metadata?.name).toLowerCase();
       const title = `${seriesName.charAt(0).toUpperCase() + seriesName.slice(1)} for ${titleDate}`
       document.getElementById("chart-title").textContent = title;
+      document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, spotTraces.length > 0);
+      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
       const config = { 
         responsive: true, 
         displaylogo: false, 
