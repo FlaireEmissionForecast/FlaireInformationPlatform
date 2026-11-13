@@ -752,6 +752,7 @@
       plot_bgcolor: 'rgba(0,0,0,0)',
 
       hovermode: "x unified",
+      dragmode: false,
 
       legend: {
         orientation: 'h',
@@ -1223,7 +1224,8 @@
       const config = { 
         responsive: true, 
         displaylogo: false, 
-        displayModeBar: false
+        displayModeBar: false,
+        scrollZoom: false
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
       attachRangeSliderHoverHandler();
@@ -1270,6 +1272,7 @@
         responsive: true, 
         displaylogo: false, 
         displayModeBar: false,
+        scrollZoom: false
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
       attachRangeSliderHoverHandler();
