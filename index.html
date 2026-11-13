@@ -880,9 +880,22 @@
   }
 
   function readSpotPriceCache(url) {
+    const key = `spotprice:${url}`;
+
     try {
-      const cached = localStorage.getItem(`spotprice:${url}`);
-      return cached ? JSON.parse(cached) : null;
+      const cachedValue = localStorage.getItem(key);
+      if (!cachedValue) return null;
+
+      const cached = JSON.parse(cachedValue);
+
+      // Check expiration only when this cache entry is read
+      if (!Number.isFinite(cached.savedAt) ||
+          Date.now() - cached.savedAt >= SPOT_PRICE_CACHE_TTL) {
+        localStorage.removeItem(key);
+        return null;
+      }
+
+      return cached;
     } catch (error) {
       return null;
     }
@@ -913,7 +926,7 @@
     const url = `${API_BASE}/spotprice/range?${params.toString()}`;
     const cached = readSpotPriceCache(url);
 
-    if (cached && Date.now() - cached.savedAt < SPOT_PRICE_CACHE_TTL) {
+    if (cached) {
       return makeSpotPriceTraces(cached.payload, range);
     }
 
