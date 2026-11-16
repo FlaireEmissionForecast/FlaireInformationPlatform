@@ -292,7 +292,7 @@
         }
     }
 
-    /* Main-series chart type switch */
+    /* Chart slider switches */
     .chart-type-toggle {
       display: flex;
       align-items: center;
@@ -323,6 +323,15 @@
       background-color: #4a90e2;
       border-radius: 999px;
       transition: background-color 0.2s;
+    }
+
+    /* Inherit properties but transform into an on/off switch */
+    .on-off-slider .chart-type-slider {
+      background-color: #bdbdbd;
+    }
+
+    .on-off-slider input:checked + .chart-type-slider {
+        background-color: #4a90e2;
     }
 
     .chart-type-slider::before {
@@ -653,14 +662,17 @@
     <div id="spotprice-loading" aria-live="polite">Loading spot price data</div>
   </div>
 
-  <div class="y-scale-button">
-    <label>
-      <input type="checkbox" id="spotprice-toggle">
-      Overlay spot price
+  <div class="chart-type-toggle">
+    <span>Overlay spot price</span>
+    <label class="chart-type-switch on-off-slider" aria-label="Toggle spot price overlay">
+      <input type="checkbox" id="spotprice-toggle" role="switch" aria-checked="false">
+      <span class="chart-type-slider"></span>
     </label>
-    <label>
-      <input type="checkbox" id="yAutoscaleToggle">
-      Autoscale Y-axis
+
+    <span>Autoscale Y-axis</span>
+    <label class="chart-type-switch on-off-slider aria-label="Toggle Y-axis autoscaling">
+      <input type="checkbox" id="yAutoscaleToggle" role="switch" aria-checked="false">
+      <span class="chart-type-slider"></span>
     </label>
   </div>
 
@@ -1629,6 +1641,8 @@
   });
 
   spotPriceToggle.addEventListener('change', () => {
+    spotPriceToggle.setAttribute("aria-checked", String(spotPriceToggle.checked));
+
     if (currentForecastRequest.mode === "date") {
       loadForecastByDate(currentForecastRequest.date);
     } else {
@@ -1642,6 +1656,7 @@
   });
 
   yAutoscaleToggle.addEventListener('change', () => {
+    yAutoscaleToggle.setAttribute("aria-checked", String(yAutoscaleToggle.checked));
     yAutoscale = yAutoscaleToggle.checked;
     loadLatestForecast();
   });
