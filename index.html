@@ -221,6 +221,13 @@
         animation: chart-loading-spin 0.8s linear infinite;
     }
 
+    #forecast-generated-at {
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+      margin-top: 8px;
+    }
+
     @keyframes chart-loading-spin {
         to {
             transform: rotate(360deg);
@@ -695,6 +702,8 @@
     </label>
     <span>Bar chart</span>
   </div>
+
+  <div id="forecast-generated-at"></div>
 
   <!-- <div class="chart-full-screen-button">
       <button onclick="toggleFullscreen()">Chart to fullscreen</button>
@@ -1382,6 +1391,7 @@
       await Plotly.newPlot(chartDiv, traces, layout, config);
       attachRangeSliderHoverHandler();
       setChartLoading(false);
+      displayGeneratedAt(payload.metadata?.generated_at);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load forecast data. ${error.message}</p>`;
       console.error("Error loading forecast by date:", error);
@@ -1429,6 +1439,7 @@
       await Plotly.newPlot(chartDiv, traces, layout, config);
       attachRangeSliderHoverHandler();
       setChartLoading(false);
+      displayGeneratedAt(payload.metadata?.generated_at);
     } catch (error) {
       chartDiv.innerHTML = `<p style="color:red;">Could not load latest forecast. ${error.message}</p>`;
       console.error("Error loading latest forecast:", error);
@@ -1519,6 +1530,28 @@
       Plotly.Fx.unhover(chartDiv);
   }
 
+  function displayGeneratedAt(timestamp) {
+    const element = document.getElementById('forecast-generated-at');
+
+    if (!timestamp) {
+        element.textContent = '';
+        return;
+    }
+
+    const date = new Date(timestamp);
+
+    if (isNaN(date.getTime())) {
+        element.textContent = '';
+        return;
+    }
+
+    const formatted = new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'long'
+    }).format(date);
+
+    element.textContent = `Forecast updated: ${formatted}`;
+  }
 
   // Touch start
   chartDiv.addEventListener("touchstart", event => {
