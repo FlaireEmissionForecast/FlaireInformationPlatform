@@ -292,6 +292,64 @@
         }
     }
 
+    /* Main-series chart type switch */
+    .chart-type-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin: 12px auto 0;
+      font-size: 16px;
+    }
+
+    .chart-type-switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 24px;
+      flex: 0 0 auto;
+    }
+
+    .chart-type-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .chart-type-slider {
+      position: absolute;
+      inset: 0;
+      cursor: pointer;
+      background-color: #4a90e2;
+      border-radius: 999px;
+      transition: background-color 0.2s;
+    }
+
+    .chart-type-slider::before {
+      content: "";
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 3px;
+      top: 3px;
+      background-color: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .chart-type-switch input:checked + .chart-type-slider::before {
+      transform: translateX(22px);
+    }
+
+    .chart-type-switch input:focus-visible + .chart-type-slider {
+      outline: 3px solid #4a90e2;
+      outline-offset: 2px;
+    }
+
+    body.dark-theme .chart-type-toggle {
+      color: #eee;
+    }
+
     /* Dark theme styles */
     body.dark-theme {
       background-color: #111;
@@ -606,6 +664,15 @@
     </label>
   </div>
 
+  <div class="chart-type-toggle">
+    <span>Line graph</span>
+    <label class="chart-type-switch" aria-label="Toggle main data series between line and bar chart">
+      <input type="checkbox" id="chart-type-toggle" role="switch" aria-checked="false">
+      <span class="chart-type-slider"></span>
+    </label>
+    <span>Bar chart</span>
+  </div>
+
   <!-- <div class="chart-full-screen-button">
       <button onclick="toggleFullscreen()">Chart to fullscreen</button>
   </div> -->
@@ -624,11 +691,17 @@
   const controlsToggle = document.getElementById('controls-toggle');
   const mobileControlsMedia = window.matchMedia("(max-width: 700px)");
   const spotPriceToggle = document.getElementById("spotprice-toggle");
+  const yAutoscaleToggle = document.getElementById("yAutoscaleToggle");
+  const chartTypeToggle = document.getElementById("chart-type-toggle");
   const DEFAULT_TZ = "Europe/Helsinki";
   const DEFAULT_LANG = "EN";
-
-  const yAutoscaleToggle = document.getElementById("yAutoscaleToggle");
+  let currentChartType = "line"
   let yAutoscale = false;
+
+  // Set chart to display data as lines by default
+  chartTypeToggle.checked = false;
+  
+  // Set autoscale toggle off by default
   yAutoscaleToggle.checked = false;
 
   // Set spot price overlay off by default
@@ -735,8 +808,8 @@
         y0: 0,
         y1: 1,
         line: {
-          dash: 'dot',
-          width: 2,
+          dash: 'dash',
+          width: 1,
           color: '#888'
         }
       });
@@ -748,6 +821,7 @@
       plot_bgcolor: 'rgba(0,0,0,0)',
 
       hovermode: "x unified",
+      barmode: "group",
 
       legend: {
         orientation: 'h',
@@ -795,7 +869,7 @@
       },
       margin: { 
         l: 40, 
-        r: showSpotAxis ? 45 : 20, 
+        r: showSpotAxis ? 43 : 20, 
         t: 0,
         b: 40 
       },
@@ -818,9 +892,36 @@
     );
 
     // Connect history and forecast traces by adding first forecast point to history
-    if (historyEntries.length > 0 && forecastEntries.length > 0) {
+    if (historyEntries.length > 0 && forecastEntries.length > 0 && currentChartType == "line") {
       const firstForecast = forecastEntries[0];
       historyEntries.push(firstForecast);
+    }
+
+    if (currentChartType === "bar") {
+      return [
+        {
+          x: historyEntries.map(e => e[0]),
+          y: historyEntries.map(e => e[1]),
+          type: "bar",
+          name: "History",
+          legendrank: 1,
+          showlegend: true,
+          meta: { unit: unit },
+          marker: { color: "rgb(74,144,226)" },
+          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>'
+        },
+        {
+          x: forecastEntries.map(e => e[0]),
+          y: forecastEntries.map(e => e[1]),
+          type: "bar",
+          name: "Forecast",
+          legendrank: 2,
+          showlegend: true,
+          meta: { unit: unit },
+          marker: { color: "rgb(255,140,0)" },
+          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
+        }
+      ];
     }
 
     // If autoscale is disabled, return simple traces without dynamic fill baseline
@@ -903,6 +1004,7 @@
 
     const yMin = Math.min(...allY);
     const yMax = Math.max(...allY);
+
     // Set the baseline to next lower integer below yMin for better visual consistency
     const baseline = Math.floor(yMin - 1);
 
@@ -962,6 +1064,10 @@
       historyEntries.push(firstForecast);
     }
 
+    // Use dashed lines when line graphs are on and solid line with bar charts
+    // solid", "dot", "dash", "longdash", "dashdot", or "longdashdot"
+    let lineStyle = currentChartType === "line" ? "dot" : "solid";
+
     if (historyEntries.length) {
       traces.push({
         x: historyEntries.map(e => e[0]),
@@ -970,7 +1076,7 @@
         mode: "lines",
         name: "Spot price (history)",
         yaxis: "y2",
-        line: { color: "rgb(0, 130, 110)", width: 2, dash: "dash" },
+        line: { color: "rgb(0, 130, 110)", width: 3, dash: lineStyle },
         hovertemplate: '<b>%{y:.2f} €/MWh</b><extra>Spot price (History)</extra>'
       });
     }
@@ -983,7 +1089,7 @@
         mode: "lines",
         name: "Spot price (day-ahead)",
         yaxis: "y2",
-        line: { color: "rgb(0, 170, 140)", width: 2, dash: "dash" },
+        line: { color: "rgb(0, 200, 165)", width: 3, dash: lineStyle },
         hovertemplate: '<b>%{y:.2f} €/MWh</b><extra>Spot price (Day-ahead)</extra>'
       });
     }
@@ -1505,6 +1611,17 @@
   yAutoscaleToggle.addEventListener('change', () => {
     yAutoscale = yAutoscaleToggle.checked;
     loadLatestForecast();
+  });
+
+  chartTypeToggle.addEventListener('change', () => {
+    currentChartType = chartTypeToggle.checked ? "bar" : "line";
+    chartTypeToggle.setAttribute("aria-checked", String(chartTypeToggle.checked));
+
+    if (currentForecastRequest.mode === "date") {
+      loadForecastByDate(currentForecastRequest.date);
+    } else {
+      loadLatestForecast();
+    }
   });
 
   // Clear sticky Plotly hover labels when clicking/touching outside the chart
