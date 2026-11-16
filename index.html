@@ -211,6 +211,11 @@
         display: none;
     }
 
+    /* Make the bar-chart hover spike transparent */
+    #chart.bar-hover .spikeline {
+        opacity: 0.20 !important;
+    }
+
     /* Loading spinner */
     .chart-loading-spinner {
         width: 22px;
@@ -908,7 +913,14 @@
         tickangle: 0,
         tickformat: "%H:%M<br>%d.%m.%y",
         rangeslider: { visible: true },
-        gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
+        gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined,
+
+        // Hover indicators for both line and bar charts
+        spikemode: "across",
+        showspikes: true,
+        spikedash: currentChartType === "bar" ? "solid" : "dot",
+        spikecolor: currentChartType === "bar" ? "#fff" : undefined,
+        spikethickness: currentChartType === "bar" ? 24 : undefined
       },
       yaxis: {
         autorange: !currentYAxisRange,
@@ -1389,7 +1401,9 @@
         scrollZoom: false
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
+      chartDiv.classList.toggle("bar-hover", currentChartType === "bar");
       attachRangeSliderHoverHandler();
+      attachBarSpikeSizingHandler();
       setChartLoading(false);
       displayGeneratedAt(payload.metadata?.generated_at);
     } catch (error) {
@@ -1437,7 +1451,9 @@
         scrollZoom: false
         };
       await Plotly.newPlot(chartDiv, traces, layout, config);
+      chartDiv.classList.toggle("bar-hover", currentChartType === "bar");
       attachRangeSliderHoverHandler();
+      attachBarSpikeSizingHandler();
       setChartLoading(false);
       displayGeneratedAt(payload.metadata?.generated_at);
     } catch (error) {
@@ -1462,9 +1478,20 @@
   }
 
   function clearHoverOnRangeSlider(eventData) {
-      // Range-slider updates use an array for xaxis.range
-      if (Array.isArray(eventData["xaxis.range"])) {
+      const rangeSliderChanged = Array.isArray(eventData["xaxis.range"]);
+
+      const xAxisRangeChanged =
+          rangeSliderChanged ||
+          Object.prototype.hasOwnProperty.call(eventData, "xaxis.range[0]") ||
+          Object.prototype.hasOwnProperty.call(eventData, "xaxis.range[1]") ||
+          eventData["xaxis.autorange"] === true;
+
+      if (rangeSliderChanged) {
           Plotly.Fx.unhover(chartDiv);
+      }
+
+      if (xAxisRangeChanged) {
+          scheduleBarSpikeUpdate();
       }
   }
 
@@ -1479,8 +1506,73 @@
 
       chartDiv.on("plotly_relayout", clearHoverOnRangeSlider);
   }
-  // --- Touch scrubbing with double-tap zoom reset ---
 
+  // --- Dynamic bar hover highlight width ---
+  let barSpikeUpdatePending = false;
+  let barSpikeHandlerAttached = false;
+
+  function updateBarSpikeThickness() {
+      if (currentChartType !== "bar") return;
+
+      // Find maximum rendered bar width
+      const barPaths = chartDiv.querySelectorAll(
+          ".barlayer .trace.bars .points path"
+      );
+
+      const maxWidth = Math.max(
+          ...Array.from(barPaths, path =>
+              path.getBoundingClientRect().width
+          ).filter(width => Number.isFinite(width) && width > 1)
+      );
+
+      if (!Number.isFinite(maxWidth)) return;
+
+      const thickness = Math.max(2, Math.ceil(maxWidth));
+
+      // Avoid unnecessary Plotly redraws.
+      const currentThickness =
+          chartDiv._fullLayout?.xaxis?.spikethickness;
+
+      if (
+          Number.isFinite(currentThickness) &&
+          Math.abs(currentThickness - thickness) < 0.5
+      ) {
+          return;
+      }
+
+      Plotly.relayout(chartDiv, {
+          "xaxis.spikethickness": thickness
+      });
+  }
+
+  function scheduleBarSpikeUpdate() {
+      if (currentChartType !== "bar" || barSpikeUpdatePending) return;
+
+      barSpikeUpdatePending = true;
+
+      requestAnimationFrame(() => {
+          barSpikeUpdatePending = false;
+
+          updateBarSpikeThickness();
+      });
+  }
+
+  function attachBarSpikeSizingHandler() {
+      // Attach only once.
+      if (!barSpikeHandlerAttached && typeof chartDiv.on === "function") {
+          chartDiv.on(
+              "plotly_afterplot",
+              scheduleBarSpikeUpdate
+          );
+
+          barSpikeHandlerAttached = true;
+      }
+
+      // Calculate initial width after chart creation.
+      scheduleBarSpikeUpdate();
+  }
+
+  // --- Touch scrubbing with double-tap zoom reset ---
   let touchScrubbing = false;
 
   let lastTapTime = 0;
