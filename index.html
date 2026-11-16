@@ -697,6 +697,8 @@
   const DEFAULT_LANG = "EN";
   let currentChartType = "line"
   let yAutoscale = false;
+  let currentYAxisBaseline = null;
+  let currentYAxisRange = null;
 
   // Set chart to display data as lines by default
   chartTypeToggle.checked = false;
@@ -795,6 +797,33 @@
     return field[lang] || field["EN"] || Object.values(field)[0] || "";
   }
 
+  function getYAxisScale(payload, yAutoscale) {
+    if (!yAutoscale) {
+      return { baseline: 0, range: null };
+    }
+
+    const data = payload.data || {};
+    const allY = [
+      ...Object.values(data.history || {}),
+      ...Object.values(data.forecast || {})
+    ].map(Number).filter(Number.isFinite);
+
+    if (!allY.length) {
+      return { baseline: null, range: null };
+    }
+
+    const yMin = Math.min(...allY);
+    const yMax = Math.max(...allY);
+    const baseline = Math.floor(yMin - 1);
+
+    // Keep both axis limits explicit so Plotly does not add lower-end padding
+    // that separates the filled series from the bottom of the plot.
+    return {
+      baseline,
+      range: [baseline, yMax + (yMax - baseline) * 0.05]
+    };
+  }
+
   function buildLayout(forecastStart, payloadUnit, showSpotAxis = false) {
     const lightThemeGridColor = '#cccccc';
 
@@ -850,7 +879,8 @@
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
       },
       yaxis: {
-        autorange: true,
+        autorange: !currentYAxisRange,
+        range: currentYAxisRange || undefined,
         automargin: true,
         title: { text: payloadUnit || "Value" },
         gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
@@ -897,17 +927,13 @@
       historyEntries.push(firstForecast);
     }
 
+    // Share one scale calculation between the traces and Y-axis layout.
+    const yAxisScale = getYAxisScale(payload, yAutoscale);
+    currentYAxisBaseline = yAxisScale.baseline;
+    currentYAxisRange = yAxisScale.range;
+    const baseline = currentYAxisBaseline ?? 0;
+
     if (currentChartType === "bar") {
-      const allY = [
-        ...historyEntries.map(e => e[1]),
-        ...forecastEntries.map(e => e[1])
-      ];
-
-      const yMin = Math.min(...allY);
-      const baseline = yAutoscale
-        ? Math.floor(yMin - 1)
-        : 0;
-
       return [
         {
           x: historyEntries.map(e => e[0]),
@@ -1009,18 +1035,6 @@
       marker: { size: 6, symbol: 'circle', color: 'rgb(255, 140, 0)' },
       hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>',
     };
-
-    // Determine y-axis baseline for dynamic fill baseline
-    const allY = [
-      ...historyEntries.map(e => e[1]),
-      ...forecastEntries.map(e => e[1])
-    ];
-
-    const yMin = Math.min(...allY);
-    const yMax = Math.max(...allY);
-
-    // Set the baseline to next lower integer below yMin for better visual consistency
-    const baseline = Math.floor(yMin - 1);
 
     const historyBaseline = {
       x: historyEntries.map(e => e[0]),
@@ -1460,8 +1474,13 @@
   function resetChartZoom() {
       const update = {
           "xaxis.autorange": true,
-          "yaxis.autorange": true
+          "yaxis.autorange": !currentYAxisRange
       };
+
+      // Restore the same explicit autoscaled range used when the chart was drawn.
+      if (currentYAxisRange) {
+          update["yaxis.range"] = currentYAxisRange;
+      }
 
       // Reset the secondary axis only when spot-price traces exist
       const hasSpotPriceAxis = chartDiv.data &&
