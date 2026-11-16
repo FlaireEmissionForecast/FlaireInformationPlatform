@@ -898,28 +898,42 @@
     }
 
     if (currentChartType === "bar") {
+      const allY = [
+        ...historyEntries.map(e => e[1]),
+        ...forecastEntries.map(e => e[1])
+      ];
+
+      const yMin = Math.min(...allY);
+      const baseline = yAutoscale
+        ? Math.floor(yMin - 1)
+        : 0;
+
       return [
         {
           x: historyEntries.map(e => e[0]),
-          y: historyEntries.map(e => e[1]),
+          y: historyEntries.map(e => e[1] - baseline),
+          base: baseline,
+          customdata: historyEntries.map(e => e[1]),
           type: "bar",
           name: "History",
           legendrank: 1,
           showlegend: true,
           meta: { unit: unit },
           marker: { color: "rgb(74,144,226)" },
-          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>'
+          hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>History</extra>'
         },
         {
           x: forecastEntries.map(e => e[0]),
-          y: forecastEntries.map(e => e[1]),
+          y: forecastEntries.map(e => e[1] - baseline),
+          base: baseline,
+          customdata: forecastEntries.map(e => e[1]),
           type: "bar",
           name: "Forecast",
           legendrank: 2,
           showlegend: true,
           meta: { unit: unit },
           marker: { color: "rgb(255,140,0)" },
-          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
+          hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>Forecast</extra>'
         }
       ];
     }
@@ -1065,7 +1079,7 @@
     }
 
     // Use dashed lines when line graphs are on and solid line with bar charts
-    // solid", "dot", "dash", "longdash", "dashdot", or "longdashdot"
+    // Options: "solid", "dot", "dash", "longdash", "dashdot", or "longdashdot"
     let lineStyle = currentChartType === "line" ? "dot" : "solid";
 
     if (historyEntries.length) {
