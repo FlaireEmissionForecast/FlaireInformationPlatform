@@ -181,6 +181,7 @@
       max-width: 1000px;
       height: calc(clamp(300px, 55vh, 700px) + var(--spot-extra-height));
       position: relative;
+      margin: 0 0 0 0;
     }
 
     #chart-container.has-spotprices {
@@ -295,11 +296,17 @@
     /* Chart slider switches */
     .chart-type-toggle {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      margin: 12px auto 0;
+      column-gap: 8px;
+      row-gap: 2px;
+      margin: 8px auto 0;
       font-size: 16px;
+    }
+
+    .toggle-pair .chart-type-toggle {
+        display: inline-flex;
     }
 
     .chart-type-switch {
@@ -663,17 +670,21 @@
   </div>
 
   <div class="chart-type-toggle">
-    <span>Overlay spot price</span>
-    <label class="chart-type-switch on-off-slider" aria-label="Toggle spot price overlay">
-      <input type="checkbox" id="spotprice-toggle" role="switch" aria-checked="false">
-      <span class="chart-type-slider"></span>
-    </label>
+    <span class="toggle-pair chart-type-toggle">
+      <span>Overlay spot price</span>
+      <label class="chart-type-switch on-off-slider" aria-label="Toggle spot price overlay">
+        <input type="checkbox" id="spotprice-toggle" role="switch" aria-checked="false">
+        <span class="chart-type-slider"></span>
+      </label>
+    </span>
 
-    <span>Autoscale Y-axis</span>
-    <label class="chart-type-switch on-off-slider aria-label="Toggle Y-axis autoscaling">
-      <input type="checkbox" id="yAutoscaleToggle" role="switch" aria-checked="false">
-      <span class="chart-type-slider"></span>
-    </label>
+    <span class="toggle-pair chart-type-toggle">
+      <span>Autoscale Y-axis</span>
+      <label class="chart-type-switch on-off-slider" aria-label="Toggle Y-axis autoscaling">
+        <input type="checkbox" id="yAutoscaleToggle" role="switch" aria-checked="false">
+        <span class="chart-type-slider"></span>
+      </label>
+    </span>
   </div>
 
   <div class="chart-type-toggle">
