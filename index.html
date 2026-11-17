@@ -681,16 +681,24 @@
     }
 
     .statistics-dialog {
-      width: min(900px, 100%);
-      max-height: min(88vh, 900px);
+      width: min(1100px, 100%);
+      max-height: min(94vh, 1100px);
       display: flex;
       flex-direction: column;
+      min-height: 0;
       overflow: hidden;
       border: 2px solid var(--stats-border);
       border-radius: 14px;
       background: var(--stats-surface);
       color: var(--stats-text);
       box-shadow: var(--stats-shadow);
+    }
+
+    .statistics-scroll-region {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
     }
 
     .statistics-header {
@@ -751,6 +759,55 @@
       overflow: auto;
       border-top: 1px solid var(--stats-border);
       border-bottom: 1px solid var(--stats-border);
+    }
+
+    .statistics-charts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      padding: 16px 18px 4px;
+    }
+
+    .statistics-chart-card {
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--stats-border);
+      border-radius: 10px;
+      background: var(--stats-surface);
+    }
+
+    .statistics-chart-card h3 {
+      margin: 0;
+      padding: 12px 14px 0;
+      color: var(--stats-text);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .statistics-chart-description {
+      margin: 4px 14px 0;
+      color: var(--stats-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .statistics-chart {
+      width: 100%;
+      height: 330px;
+      min-width: 0;
+    }
+
+    .statistics-chart-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 240px;
+      padding: 18px;
+      box-sizing: border-box;
+      color: var(--stats-muted);
+      font-size: 13px;
+      line-height: 1.5;
+      text-align: center;
     }
 
     .statistics-table {
@@ -827,8 +884,18 @@
       }
 
       .statistics-dialog {
-        max-height: 94vh;
+        max-height: 96vh;
         border-radius: 10px;
+      }
+
+      .statistics-charts {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 12px;
+        padding: 12px 10px 2px;
+      }
+
+      .statistics-chart {
+        height: 290px;
       }
 
       .statistics-header {
@@ -966,25 +1033,43 @@
       <p id="statistics-status" class="statistics-status" role="status" aria-live="polite">
         Calculating statistics…
       </p>
-      <div class="statistics-table-wrap">
-        <table class="statistics-table" aria-label="Descriptive statistics and spot price regression">
-          <thead>
-            <tr>
-              <th scope="col">Data set</th>
-              <th scope="col">Count</th>
-              <th scope="col">Minimum</th>
-              <th scope="col">Maximum</th>
-              <th scope="col">Average</th>
-              <th scope="col">Median</th>
-              <th scope="col">Std. dev.</th>
-              <th scope="col">Pearson r</th>
-              <th scope="col">OLS R²</th>
-            </tr>
-          </thead>
-          <tbody id="statistics-table-body"></tbody>
-        </table>
+      <div class="statistics-scroll-region">
+        <div class="statistics-table-wrap">
+          <table class="statistics-table" aria-label="Descriptive statistics and spot price regression">
+            <thead>
+              <tr>
+                <th scope="col">Data set</th>
+                <th scope="col">Count</th>
+                <th scope="col">Minimum</th>
+                <th scope="col">Maximum</th>
+                <th scope="col">Average</th>
+                <th scope="col">Median</th>
+                <th scope="col">Std. dev.</th>
+                <th scope="col">Pearson r</th>
+                <th scope="col">OLS R²</th>
+              </tr>
+            </thead>
+            <tbody id="statistics-table-body"></tbody>
+          </table>
+        </div>
+
+        <div class="statistics-charts">
+          <section class="statistics-chart-card" aria-labelledby="statistics-correlation-title">
+            <h3 id="statistics-correlation-title">Linear correlation: series vs. spot</h3>
+            <p class="statistics-chart-description">Matched observations with the combined-series OLS regression line</p>
+            <div id="statistics-correlation-chart" class="statistics-chart" role="img"
+                 aria-label="Scatter plot of series values against spot prices with an OLS regression line"></div>
+          </section>
+          <section class="statistics-chart-card" aria-labelledby="statistics-residual-title">
+            <h3 id="statistics-residual-title">Regression residuals over time</h3>
+            <p class="statistics-chart-description">OLS residuals (actual minus fitted series value) by timestamp, with a zero reference line</p>
+            <div id="statistics-residual-chart" class="statistics-chart" role="img"
+                 aria-label="Line chart of regression residual values over time with a zero reference line"></div>
+          </section>
+        </div>
+
+        <p id="statistics-footnote" class="statistics-footnote"></p>
       </div>
-      <p id="statistics-footnote" class="statistics-footnote"></p>
     </section>
   </div>
 
@@ -1016,6 +1101,8 @@
   const statisticsStatus = document.getElementById("statistics-status");
   const statisticsTableBody = document.getElementById("statistics-table-body");
   const statisticsFootnote = document.getElementById("statistics-footnote");
+  const statisticsCorrelationChart = document.getElementById("statistics-correlation-chart");
+  const statisticsResidualChart = document.getElementById("statistics-residual-chart");
   let statisticsReturnFocusElement = null;
   const DEFAULT_TZ = "Europe/Helsinki";
   const DEFAULT_LANG = "EN";
@@ -2032,6 +2119,8 @@
     const pairs = seriesEntries
       .filter(entry => spotByTimestamp.has(entry.key))
       .map(entry => ({
+        key: entry.key,
+        timestamp: entry.timestamp,
         x: spotByTimestamp.get(entry.key), // independent variable: spot price
         y: entry.value                     // dependent variable: series value
       }));
@@ -2044,7 +2133,7 @@
     const sumYY = pairs.reduce((sum, pair) => sum + Math.pow(pair.y - meanY, 2), 0);
     const sumXY = pairs.reduce((sum, pair) => sum + (pair.x - meanX) * (pair.y - meanY), 0);
 
-    // Correlation and R² are undefined when either variable has no variation
+    // Correlation and R² are undefined when either variable has no variation.
     if (sumXX <= 0 || sumYY <= 0) return null;
 
     const correlation = Math.max(-1, Math.min(1,
@@ -2054,14 +2143,27 @@
     // giving a unique global minimum.
     const slope = sumXY / sumXX;
     const intercept = meanY - slope * meanX;
-    const residualSumSquares = pairs.reduce((sum, pair) => {
-      const predicted = intercept + slope * pair.x;
-      return sum + Math.pow(pair.y - predicted, 2);
-    }, 0);
+    const pairsWithResiduals = pairs.map(pair => {
+      const fitted = intercept + slope * pair.x;
+      return {
+        ...pair,
+        fitted,
+        residual: pair.y - fitted
+      };
+    });
+    const residualSumSquares = pairsWithResiduals.reduce((sum, pair) =>
+      sum + Math.pow(pair.residual, 2), 0);
     const rSquared = Math.max(0, Math.min(1,
       1 - residualSumSquares / sumYY));
 
-    return { correlation, rSquared, count: pairs.length };
+    return {
+      correlation,
+      rSquared,
+      count: pairsWithResiduals.length,
+      slope,
+      intercept,
+      pairs: pairsWithResiduals
+    };
   }
 
   function formatStatistic(value) {
@@ -2098,6 +2200,212 @@
   function setStatisticsStatus(message, isWarning = false) {
     statisticsStatus.textContent = message;
     statisticsStatus.classList.toggle("is-warning", isWarning);
+  }
+
+  function setStatisticsChartEmpty(container, message) {
+    if (window.Plotly) {
+      try {
+        Plotly.purge(container);
+      } catch (error) {
+        console.warn("Could not clear statistics chart:", error);
+      }
+    }
+
+    const placeholder = document.createElement("p");
+    placeholder.className = "statistics-chart-empty";
+    placeholder.textContent = message;
+    container.replaceChildren(placeholder);
+  }
+
+  function resetStatisticsCharts(message = "Charts will appear when the regression data is ready.") {
+    setStatisticsChartEmpty(statisticsCorrelationChart, message);
+    setStatisticsChartEmpty(statisticsResidualChart, message);
+  }
+
+  function formatRegressionCoefficient(value) {
+    if (!Number.isFinite(value)) return "N/A";
+    return new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 3,
+      maximumSignificantDigits: 3
+    }).format(value);
+  }
+
+  function renderStatisticsCharts(regression, forecastEntries, payloadUnit) {
+    if (!regression || !regression.pairs?.length) {
+      const message = "A complete set of matched, non-constant series and spot-price observations is required to draw these regression charts.";
+      resetStatisticsCharts(message);
+      return;
+    }
+
+    if (!window.Plotly) {
+      resetStatisticsCharts("Plotly is not available. Reload the page and try again.");
+      return;
+    }
+
+    const forecastKeys = new Set(forecastEntries.map(entry => entry.key));
+    const historyPairs = regression.pairs.filter(pair => !forecastKeys.has(pair.key));
+    const forecastPairs = regression.pairs.filter(pair => forecastKeys.has(pair.key));
+    const unitLabel = payloadUnit || "Series value";
+    const isDark = currentTheme === "dark";
+    const historyColor = "rgb(74, 144, 226)";
+    const forecastColor = "rgb(255, 140, 0)";
+    const fitColor = isDark ? "#f2f2f2" : "#263238";
+    const commonConfig = {
+      responsive: true,
+      displayModeBar: false,
+      displaylogo: false
+    };
+    const commonLayout = {
+      template: isDark ? "plotly_dark" : "plotly_white",
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      autosize: true,
+      margin: { l: 58, r: 16, t: 48, b: 58 },
+      font: { size: 11 },
+      legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.02, yanchor: "bottom" },
+      hovermode: "closest"
+    };
+
+    const correlationTraces = [];
+    if (historyPairs.length) {
+      correlationTraces.push({
+        type: "scatter",
+        mode: "markers",
+        name: "History",
+        x: historyPairs.map(pair => pair.x),
+        y: historyPairs.map(pair => pair.y),
+        customdata: historyPairs.map(pair => pair.timestamp),
+        marker: { color: historyColor, size: 7, opacity: 0.82 },
+        hovertemplate: "Spot price: %{x:.2f} €/MWh<br>Series: %{y:.2f} " + unitLabel + "<br>Time: %{customdata}<extra>History</extra>"
+      });
+    }
+    if (forecastPairs.length) {
+      correlationTraces.push({
+        type: "scatter",
+        mode: "markers",
+        name: "Forecast",
+        x: forecastPairs.map(pair => pair.x),
+        y: forecastPairs.map(pair => pair.y),
+        customdata: forecastPairs.map(pair => pair.timestamp),
+        marker: { color: forecastColor, size: 7, opacity: 0.82 },
+        hovertemplate: "Spot price: %{x:.2f} €/MWh<br>Series: %{y:.2f} " + unitLabel + "<br>Time: %{customdata}<extra>Forecast</extra>"
+      });
+    }
+
+    const xValues = regression.pairs.map(pair => pair.x);
+    const minSpot = Math.min(...xValues);
+    const maxSpot = Math.max(...xValues);
+    correlationTraces.push({
+      type: "scatter",
+      mode: "lines",
+      name: "OLS fit",
+      x: [minSpot, maxSpot],
+      y: [
+        regression.intercept + regression.slope * minSpot,
+        regression.intercept + regression.slope * maxSpot
+      ],
+      line: { color: fitColor, width: 2.5, dash: "dash" },
+      hovertemplate: "Fitted series: %{y:.2f} " + unitLabel + "<extra>OLS fit</extra>"
+    });
+
+    const interceptSign = regression.intercept >= 0 ? "+" : "−";
+    const equationText =
+      `Series = ${formatRegressionCoefficient(regression.slope)} × spot ${interceptSign} ${formatRegressionCoefficient(Math.abs(regression.intercept))}` +
+      `<br>Pearson r = ${formatStatistic(regression.correlation)} · R² = ${formatStatistic(regression.rSquared)}`;
+    const correlationLayout = {
+      ...commonLayout,
+      xaxis: { title: { text: "Spot price (€/MWh)" }, gridcolor: isDark ? "#444" : "#e5e7eb", zeroline: false },
+      yaxis: { title: { text: unitLabel }, gridcolor: isDark ? "#444" : "#e5e7eb", zeroline: false },
+      annotations: [{
+        xref: "paper", yref: "paper", x: 0.45, y: 0.18,
+        xanchor: "left", yanchor: "top", showarrow: false,
+        text: equationText,
+        align: "left",
+        bgcolor: isDark ? "rgba(28,34,41,0.82)" : "rgba(255,255,255,0.82)",
+        bordercolor: isDark ? "#56616d" : "#dce2e8",
+        borderwidth: 1,
+        borderpad: 4,
+        font: { size: 10, color: isDark ? "#edf2f7" : "#263238" }
+      }]
+    };
+
+    // Plot regression residuals in chronological order so temporal patterns,
+    // drift, and runs of over- or under-prediction are easy to identify.
+    const residualTraces = [];
+    if (historyPairs.length) {
+      residualTraces.push({
+        type: "scatter",
+        mode: "lines+markers",
+        name: "History",
+        x: historyPairs.map(pair => pair.timestamp),
+        y: historyPairs.map(pair => pair.residual),
+        customdata: historyPairs.map(pair => [pair.x, pair.y, pair.fitted]),
+        line: { color: historyColor, width: 1.6 },
+        marker: { color: historyColor, size: 5, opacity: 0.9 },
+        connectgaps: false,
+        hovertemplate: 
+          "%{customdata[1]:.2f} " + unitLabel +
+          "<br>Prediction: %{customdata[2]:.2f} " + unitLabel +
+          "<br>Residual: %{y:.2f} " + unitLabel +
+          "<br>Spot price: %{customdata[0]:.2f} €/MWh"
+      });
+    }
+    if (forecastPairs.length) {
+      residualTraces.push({
+        type: "scatter",
+        mode: "lines+markers",
+        name: "Forecast",
+        x: forecastPairs.map(pair => pair.timestamp),
+        y: forecastPairs.map(pair => pair.residual),
+        customdata: forecastPairs.map(pair => [pair.x, pair.y, pair.fitted]),
+        line: { color: forecastColor, width: 1.6 },
+        marker: { color: forecastColor, size: 5, opacity: 0.9 },
+        connectgaps: false,
+        hovertemplate:
+          "%{customdata[1]:.2f} " + unitLabel +
+          "<br>Prediction: %{customdata[2]:.2f} " + unitLabel +
+          "<br>Residual: %{y:.2f} " + unitLabel +
+          "<br>Spot price: %{customdata[0]:.2f} €/MWh"
+      });
+    }
+
+    const timeValues = regression.pairs.map(pair => pair.timestamp);
+    const residualLayout = {
+      ...commonLayout,
+      hovermode: "x unified",
+      xaxis: {
+        type: "date",
+        title: { text: "Time" },
+        tickformat: "%H:%M<br>%d.%m.%y",
+        gridcolor: isDark ? "#444" : "#e5e7eb",
+        zeroline: false
+      },
+      yaxis: {
+        title: { text: `Residual (${unitLabel})` },
+        gridcolor: isDark ? "#444" : "#e5e7eb",
+        zeroline: false
+      },
+      shapes: [{
+        type: "line", xref: "x", yref: "y",
+        x0: timeValues[0],
+        x1: timeValues[timeValues.length - 1],
+        y0: 0, y1: 0,
+        line: { color: fitColor, width: 1.5, dash: "dash" }
+      }]
+    };
+
+    statisticsCorrelationChart.replaceChildren();
+    statisticsResidualChart.replaceChildren();
+    Plotly.react(statisticsCorrelationChart, correlationTraces, correlationLayout, commonConfig)
+      .catch(error => {
+        console.error("Could not render the correlation chart:", error);
+        setStatisticsChartEmpty(statisticsCorrelationChart, "The correlation chart could not be rendered.");
+      });
+    Plotly.react(statisticsResidualChart, residualTraces, residualLayout, commonConfig)
+      .catch(error => {
+        console.error("Could not render the residual chart:", error);
+        setStatisticsChartEmpty(statisticsResidualChart, "The residual chart could not be rendered.");
+      });
   }
 
   function renderStatistics(forecastPayload, spotPayload) {
@@ -2153,12 +2461,18 @@
       forecastEntries,
       calculateRegressionStatistics(forecastEntries, spotByTimestamp, hasFullCoverage)
     );
+    const combinedRegression = calculateRegressionStatistics(
+      combinedEntries,
+      spotByTimestamp,
+      hasFullCoverage
+    );
     appendStatisticsRow(
       "Combined series",
       combinedEntries,
-      calculateRegressionStatistics(combinedEntries, spotByTimestamp, hasFullCoverage)
+      combinedRegression
     );
     appendStatisticsRow("Spot prices (available)", spotEntries, null, true);
+    renderStatisticsCharts(combinedRegression, forecastEntries, getLangVer(forecastPayload?.metadata?.unit));
 
     if (hasFullCoverage) {
       setStatisticsStatus(
@@ -2202,6 +2516,7 @@
     statisticsTableBody.replaceChildren();
     statisticsSubtitle.textContent = "Preparing the current data set…";
     statisticsFootnote.textContent = "";
+    resetStatisticsCharts();
 
     if (!currentForecastPayload) {
       setStatisticsStatus(
@@ -2234,6 +2549,7 @@
         "Unable to load spot prices or calculate statistics. Please try again.",
         true
       );
+      resetStatisticsCharts("Charts are unavailable because the spot-price data could not be loaded.");
     }
   }
 
