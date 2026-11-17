@@ -616,6 +616,243 @@
       }
     }
 
+    /* Statistics action and floating results panel */
+    .statistics-action {
+      display: flex;
+      justify-content: center;
+      width: 100%;
+      margin: 14px auto 4px;
+    }
+
+    .statistics-action button {
+      border: 1px solid #4a90e2;
+      border-radius: 7px;
+      padding: 9px 18px;
+      background: #4a90e2;
+      color: #fff;
+      font: inherit;
+      font-size: 15px;
+      cursor: pointer;
+      transition: background-color 0.2s, border-color 0.2s;
+    }
+
+    .statistics-action button:hover {
+      background: #357fcf;
+      border-color: #357fcf;
+    }
+
+    .statistics-action button:focus-visible,
+    .statistics-close:focus-visible {
+      outline: 3px solid #4a90e2;
+      outline-offset: 3px;
+    }
+
+    .statistics-modal {
+      --stats-surface: #fff;
+      --stats-text: #263238;
+      --stats-muted: #66727c;
+      --stats-border: #dce2e8;
+      --stats-header: #f2f5f8;
+      --stats-row-alt: #f8fafc;
+      --stats-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px;
+      box-sizing: border-box;
+      background: rgba(12, 20, 28, 0.58);
+    }
+
+    .statistics-modal[hidden] {
+      display: none;
+    }
+
+    body.dark-theme .statistics-modal {
+      --stats-surface: #1c2229;
+      --stats-text: #edf2f7;
+      --stats-muted: #aab5c0;
+      --stats-border: #3a4652;
+      --stats-header: #252e38;
+      --stats-row-alt: #202831;
+      --stats-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+    }
+
+    .statistics-dialog {
+      width: min(900px, 100%);
+      max-height: min(88vh, 900px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 2px solid var(--stats-border);
+      border-radius: 14px;
+      background: var(--stats-surface);
+      color: var(--stats-text);
+      box-shadow: var(--stats-shadow);
+    }
+
+    .statistics-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      padding: 20px 22px 14px;
+      border-bottom: 1px solid var(--stats-border);
+    }
+
+    .statistics-header h2 {
+      margin: 0;
+      color: var(--stats-text);
+      font-size: 22px;
+      font-weight: 600;
+    }
+
+    .statistics-subtitle {
+      margin: 10px 0 0;
+      color: var(--stats-muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .statistics-close {
+      flex: 0 0 auto;
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--stats-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--stats-text);
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
+    }
+
+    .statistics-status {
+      margin: 0;
+      padding: 12px 22px;
+      color: var(--stats-muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .statistics-status.is-warning {
+      color: #a65a00;
+      background: rgba(245, 158, 11, 0.09);
+    }
+
+    body.dark-theme .statistics-status.is-warning {
+      color: #ffc36b;
+    }
+
+    .statistics-table-wrap {
+      width: 100%;
+      overflow: auto;
+      border-top: 1px solid var(--stats-border);
+      border-bottom: 1px solid var(--stats-border);
+    }
+
+    .statistics-table {
+      width: 100%;
+      min-width: 600px;
+      border-collapse: separate;
+      border-spacing: 0;
+      color: var(--stats-text);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .statistics-table th,
+    .statistics-table td {
+      padding: 6px 6px;
+      border-bottom: 1px solid var(--stats-border);
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .statistics-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: var(--stats-header);
+      color: var(--stats-muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.035em;
+      text-transform: uppercase;
+    }
+
+    .statistics-table th:first-child,
+    .statistics-table td:first-child {
+      position: sticky;
+      left: 0;
+      text-align: left;
+    }
+
+    .statistics-table thead th:first-child {
+      z-index: 2;
+      background: var(--stats-header);
+    }
+
+    .statistics-table tbody th {
+      background: var(--stats-surface);
+      font-weight: 600;
+    }
+
+    .statistics-table tbody tr:nth-child(even) td {
+      background: var(--stats-row-alt);
+    }
+
+    .statistics-table tbody tr:nth-child(even) th {
+      background: var(--stats-row-alt);
+    }
+
+    .statistics-table tbody tr:last-child th,
+    .statistics-table tbody tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .statistics-footnote {
+      margin: 0;
+      padding: 13px 22px 18px;
+      color: var(--stats-muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    @media (max-width: 700px) {
+      .statistics-modal {
+        padding: 4px;
+      }
+
+      .statistics-dialog {
+        max-height: 94vh;
+        border-radius: 10px;
+      }
+
+      .statistics-header {
+        padding: 16px 15px 12px;
+      }
+
+      .statistics-header h2 {
+        font-size: 19px;
+      }
+
+      .statistics-status {
+        padding: 10px 15px;
+      }
+
+      .statistics-footnote {
+        padding: 12px 15px 15px;
+      }
+
+      .statistics-table th,
+      .statistics-table td {
+        padding: 4px 4px;
+      }
+    }
+
   </style>
 </head>
 <body class="light-theme">
@@ -707,8 +944,49 @@
     </label>
     <span>Bar chart</span>
   </div>
+  
+  <div class="statistics-action">
+    <button type="button" id="calculate-statistics-button">Show statistics</button>
+  </div>
 
   <div id="forecast-generated-at"></div>
+
+  <div id="statistics-modal" class="statistics-modal" hidden>
+    <section class="statistics-dialog" role="dialog" aria-modal="true"
+             aria-labelledby="statistics-title" aria-describedby="statistics-subtitle"
+             tabindex="-1">
+      <div class="statistics-header">
+        <div>
+          <h2 id="statistics-title">Current series statistics</h2>
+          <p id="statistics-subtitle" class="statistics-subtitle"></p>
+        </div>
+        <button type="button" id="statistics-close" class="statistics-close"
+                aria-label="Close statistics">&times;</button>
+      </div>
+      <p id="statistics-status" class="statistics-status" role="status" aria-live="polite">
+        Calculating statistics…
+      </p>
+      <div class="statistics-table-wrap">
+        <table class="statistics-table" aria-label="Descriptive statistics and spot price regression">
+          <thead>
+            <tr>
+              <th scope="col">Data set</th>
+              <th scope="col">Count</th>
+              <th scope="col">Minimum</th>
+              <th scope="col">Maximum</th>
+              <th scope="col">Average</th>
+              <th scope="col">Median</th>
+              <th scope="col">Std. dev.</th>
+              <th scope="col">Pearson r</th>
+              <th scope="col">OLS R²</th>
+            </tr>
+          </thead>
+          <tbody id="statistics-table-body"></tbody>
+        </table>
+      </div>
+      <p id="statistics-footnote" class="statistics-footnote"></p>
+    </section>
+  </div>
 
   <!-- <div class="chart-full-screen-button">
       <button onclick="toggleFullscreen()">Chart to fullscreen</button>
@@ -730,6 +1008,15 @@
   const spotPriceToggle = document.getElementById("spotprice-toggle");
   const yAutoscaleToggle = document.getElementById("yAutoscaleToggle");
   const chartTypeToggle = document.getElementById("chart-type-toggle");
+  const calculateStatisticsButton = document.getElementById("calculate-statistics-button");
+  const statisticsModal = document.getElementById("statistics-modal");
+  const statisticsDialog = statisticsModal.querySelector(".statistics-dialog");
+  const statisticsCloseButton = document.getElementById("statistics-close");
+  const statisticsSubtitle = document.getElementById("statistics-subtitle");
+  const statisticsStatus = document.getElementById("statistics-status");
+  const statisticsTableBody = document.getElementById("statistics-table-body");
+  const statisticsFootnote = document.getElementById("statistics-footnote");
+  let statisticsReturnFocusElement = null;
   const DEFAULT_TZ = "Europe/Helsinki";
   const DEFAULT_LANG = "EN";
   let currentChartType = "line"
@@ -754,6 +1041,8 @@
 
   let currentSeriesKey = "consumption_emissions"; // default; will be updated from /info
   let currentForecastRequest = { mode: "latest", date: null };
+  let currentForecastPayload = null;
+  let currentSpotPricePayload = null;
 
   // Default to light theme
   let currentTheme = 'light';
@@ -1169,7 +1458,7 @@
     return traces;
   }
 
-  const SPOT_PRICE_CACHE_TTL = 15 * 60 * 1000; // 15 minutes in milliseconds
+  const SPOT_PRICE_CACHE_TTL = 10 * 60 * 1000; // 15 minutes in milliseconds
   const spotPriceLoading = document.getElementById("spotprice-loading");
 
   function setSpotPriceLoading(loading) {
@@ -1209,11 +1498,9 @@
     }
   }
 
-  async function fetchSpotPriceTraces(forecastPayload) {
-    if (!spotPriceToggle.checked) return [];
-
+  async function fetchSpotPricePayload(forecastPayload) {
     const range = getForecastTimeRange(forecastPayload);
-    if (!range) return [];
+    if (!range) return null;
 
     const params = new URLSearchParams({
       date_from: range.startTime,
@@ -1223,24 +1510,34 @@
     const url = `${API_BASE}/spotprice/range?${params.toString()}`;
     const cached = readSpotPriceCache(url);
 
-    if (cached) {
-      return makeSpotPriceTraces(cached.payload, range);
+    if (cached && cached.payload) {
+      currentSpotPricePayload = cached.payload;
+      return cached.payload;
     }
 
     setSpotPriceLoading(true);
     try {
       const payload = await fetchJson(url);
       writeSpotPriceCache(url, payload);
-      return makeSpotPriceTraces(payload, range);
+      currentSpotPricePayload = payload;
+      return payload;
     } catch (error) {
       console.warn("Could not load spot prices:", error);
-      if (cached && cached.payload) {
-        return makeSpotPriceTraces(cached.payload, range);
-      }
-      return [];
+      currentSpotPricePayload = null;
+      return null;
     } finally {
       setSpotPriceLoading(false);
     }
+  }
+
+  async function fetchSpotPriceTraces(forecastPayload) {
+    if (!spotPriceToggle.checked) return [];
+
+    const range = getForecastTimeRange(forecastPayload);
+    if (!range) return [];
+
+    const payload = await fetchSpotPricePayload(forecastPayload);
+    return payload ? makeSpotPriceTraces(payload, range) : [];
   }
 
   function initHistoryOptionsFromInfo(infoPayload, seriesKey, preserveSelection = false) {
@@ -1380,6 +1677,8 @@
       }
 
       currentForecastRequest = { mode: "date", date: dateStr };
+      currentForecastPayload = payload;
+      currentSpotPricePayload = null;
       const traces = makeTracesFromPayload(payload, yAutoscale);
       const spotTraces = await fetchSpotPriceTraces(payload);
       const showSpotPrices = spotTraces.length > 0
@@ -1431,6 +1730,8 @@
       }
 
       currentForecastRequest = { mode: "latest", date: null };
+      currentForecastPayload = payload;
+      currentSpotPricePayload = null;
       const traces = makeTracesFromPayload(payload, yAutoscale);
       const spotTraces = await fetchSpotPriceTraces(payload);
       const showSpotPrices = spotTraces.length > 0
@@ -1645,6 +1946,297 @@
     element.textContent = `Forecast updated: ${formatted}`;
   }
 
+  // --- Statistics helpers ---
+  function normalizeTimestampKey(timestamp) {
+    const date = new Date(timestamp);
+
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return date.getTime();
+  }
+
+  function getNumericEntries(values) {
+    return Object.entries(values || {})
+      .filter(([timestamp, value]) => 
+        timestamp && 
+        value !== null &&
+        value !== undefined && 
+        value !== "")
+      .map(([timestamp, value]) => ({
+        timestamp,
+        key: normalizeTimestampKey(timestamp),
+        value: Number(value)
+      }))
+      .filter(entry => 
+        entry.key !== null && 
+        Number.isFinite(entry.value)
+        )
+      .sort((a, b) => a.key - b.key);
+  }
+
+  function mergeEntriesByTimestamp(entries) {
+    const byTimestamp = new Map();
+    entries.forEach(entry => byTimestamp.set(entry.key, entry));
+    return Array.from(byTimestamp.values()).sort((a, b) => a.key - b.key);
+  }
+
+  function hasContinuousTimestamps(entries, intervalMinutes = 60) {
+    if (entries.length < 2) return entries.length === 1;
+
+    const intervalMilliseconds = intervalMinutes * 60 * 1000;
+
+    const sorted = [...entries].sort((a, b) => a.key - b.key);
+
+    for (let i = 1; i < sorted.length; i++) {
+      const difference = sorted[i].key - sorted[i - 1].key;
+
+      if (difference !== intervalMilliseconds) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function calculateDescriptiveStatistics(entries) {
+    const values = entries.map(entry => entry.value).filter(Number.isFinite);
+    if (!values.length) return null;
+
+    const sorted = [...values].sort((a, b) => a - b);
+    const count = sorted.length;
+    const average = sorted.reduce((sum, value) => sum + value, 0) / count;
+    const middle = Math.floor(count / 2);
+    const median = count % 2
+      ? sorted[middle]
+      : (sorted[middle - 1] + sorted[middle]) / 2;
+    const sampleStandardDeviation = count > 1
+      ? Math.sqrt(sorted.reduce((sum, value) =>
+          sum + Math.pow(value - average, 2), 0) / (count - 1))
+      : null;
+
+    return {
+      count,
+      minimum: sorted[0],
+      maximum: sorted[count - 1],
+      average,
+      median,
+      standardDeviation: sampleStandardDeviation
+    };
+  }
+
+  function calculateRegressionStatistics(seriesEntries, spotByTimestamp, hasFullCoverage) {
+    if (!hasFullCoverage || seriesEntries.length < 2) return null;
+
+    const pairs = seriesEntries
+      .filter(entry => spotByTimestamp.has(entry.key))
+      .map(entry => ({
+        x: spotByTimestamp.get(entry.key), // independent variable: spot price
+        y: entry.value                     // dependent variable: series value
+      }));
+
+    if (pairs.length !== seriesEntries.length || pairs.length < 2) return null;
+
+    const meanX = pairs.reduce((sum, pair) => sum + pair.x, 0) / pairs.length;
+    const meanY = pairs.reduce((sum, pair) => sum + pair.y, 0) / pairs.length;
+    const sumXX = pairs.reduce((sum, pair) => sum + Math.pow(pair.x - meanX, 2), 0);
+    const sumYY = pairs.reduce((sum, pair) => sum + Math.pow(pair.y - meanY, 2), 0);
+    const sumXY = pairs.reduce((sum, pair) => sum + (pair.x - meanX) * (pair.y - meanY), 0);
+
+    // Correlation and R² are undefined when either variable has no variation
+    if (sumXX <= 0 || sumYY <= 0) return null;
+
+    const correlation = Math.max(-1, Math.min(1,
+      sumXY / Math.sqrt(sumXX * sumYY)));
+    // The intercept makes the fitted regression line pass through (meanX, meanY).
+    // When sumXX > 0, the objective is strictly convex in the slope and intercept,
+    // giving a unique global minimum.
+    const slope = sumXY / sumXX;
+    const intercept = meanY - slope * meanX;
+    const residualSumSquares = pairs.reduce((sum, pair) => {
+      const predicted = intercept + slope * pair.x;
+      return sum + Math.pow(pair.y - predicted, 2);
+    }, 0);
+    const rSquared = Math.max(0, Math.min(1,
+      1 - residualSumSquares / sumYY));
+
+    return { correlation, rSquared, count: pairs.length };
+  }
+
+  function formatStatistic(value) {
+    if (!Number.isFinite(value)) return "N/A";
+    return new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 2
+    }).format(value);
+  }
+
+  function appendStatisticsRow(label, entries, regression = null, isSpotRow = false) {
+    const stats = calculateDescriptiveStatistics(entries);
+    const row = document.createElement("tr");
+    const values = [
+      label,
+      stats ? String(stats.count) : "0",
+      stats ? formatStatistic(stats.minimum) : "N/A",
+      stats ? formatStatistic(stats.maximum) : "N/A",
+      stats ? formatStatistic(stats.average) : "N/A",
+      stats ? formatStatistic(stats.median) : "N/A",
+      stats ? formatStatistic(stats.standardDeviation) : "N/A",
+      isSpotRow ? "—" : (regression ? formatStatistic(regression.correlation) : "N/A"),
+      isSpotRow ? "—" : (regression ? formatStatistic(regression.rSquared) : "N/A")
+    ];
+
+    values.forEach((value, index) => {
+      const cell = document.createElement(index === 0 ? "th" : "td");
+      if (index === 0) cell.scope = "row";
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+    statisticsTableBody.appendChild(row);
+  }
+
+  function setStatisticsStatus(message, isWarning = false) {
+    statisticsStatus.textContent = message;
+    statisticsStatus.classList.toggle("is-warning", isWarning);
+  }
+
+  function renderStatistics(forecastPayload, spotPayload) {
+    const data = forecastPayload?.data || {};
+    const historyEntries = getNumericEntries(data.history);
+    const forecastEntries = getNumericEntries(data.forecast);
+    // Remove any shared boundary timestamp so it is not counted twice.
+    const combinedEntries = mergeEntriesByTimestamp([
+      ...historyEntries,
+      ...forecastEntries
+    ]);
+
+    const hasContinuousSeries = hasContinuousTimestamps(
+      combinedEntries,
+      60
+    );
+
+    const spotData = spotPayload?.data || {};
+    const spotHistoryEntries = getNumericEntries(spotData.history);
+    const spotForecastEntries = getNumericEntries(spotData.forecast);
+    const spotEntries = mergeEntriesByTimestamp([
+      ...spotHistoryEntries,
+      ...spotForecastEntries
+    ]);
+    const spotByTimestamp = new Map(
+      spotEntries.map(entry => [entry.key, entry.value])
+    );
+
+    const matchedCount = combinedEntries.filter(entry =>
+      spotByTimestamp.has(entry.key)
+    ).length;
+    const hasFullCoverage = combinedEntries.length > 0 &&
+      matchedCount === combinedEntries.length &&
+      hasContinuousSeries;
+
+    const seriesName = getLangVer(forecastPayload?.metadata?.name) ||
+      currentSeriesKey || "Current series";
+    const range = getForecastTimeRange(forecastPayload);
+    const dateRange = range
+      ? `${range.startTime.replace("T", " ")} – ${range.endTime.replace("T", " ")}`
+      : "Date range unavailable";
+
+    statisticsSubtitle.textContent = `${seriesName} · ${dateRange}`;
+    statisticsTableBody.replaceChildren();
+
+    appendStatisticsRow(
+      "History",
+      historyEntries,
+      calculateRegressionStatistics(historyEntries, spotByTimestamp, hasFullCoverage)
+    );
+    appendStatisticsRow(
+      "Forecast",
+      forecastEntries,
+      calculateRegressionStatistics(forecastEntries, spotByTimestamp, hasFullCoverage)
+    );
+    appendStatisticsRow(
+      "Combined series",
+      combinedEntries,
+      calculateRegressionStatistics(combinedEntries, spotByTimestamp, hasFullCoverage)
+    );
+    appendStatisticsRow("Spot prices (available)", spotEntries, null, true);
+
+    if (hasFullCoverage) {
+      setStatisticsStatus(
+        `Spot-price coverage complete: ${matchedCount}/${combinedEntries.length} timestamps matched with series data. Correlation and OLS regression are calculated for each segment.`
+      );
+      statisticsFootnote.textContent =
+        "Pearson correlation measures linear association. OLS R² comes from a simple regression with an intercept, using series value as the dependent variable and spot price (€/MWh) as the independent variable. A segment needs at least two non-constant matched observations for correlation and R² to be defined. Standard deviation is the sample standard deviation (n − 1). Results are descriptive and do not imply causation.";
+    } else {
+      const coverageText = combinedEntries.length
+        ? `${matchedCount} of ${combinedEntries.length} series timestamps matched`
+        : "no valid series timestamps were found";
+
+      const continuityText = hasContinuousSeries
+        ? ""
+        : " The series contains missing or irregular time intervals.";
+
+      setStatisticsStatus(
+        `Statistics regression was skipped. Spot-price coverage: ${coverageText}.${continuityText} Descriptive statistics are still shown for available data.`,
+        true
+      );
+      statisticsFootnote.textContent =
+        "Complete spot-price coverage is required before correlation and regression are calculated. Spot-price descriptive statistics use all valid spot observations returned for the displayed date range. Standard deviation is the sample standard deviation (n − 1).";
+    }
+  }
+
+  function openStatisticsModal() {
+    statisticsReturnFocusElement = document.activeElement;
+    statisticsModal.hidden = false;
+    statisticsCloseButton.focus();
+  }
+
+  function closeStatisticsModal() {
+    statisticsModal.hidden = true;
+    if (statisticsReturnFocusElement?.focus) {
+      statisticsReturnFocusElement.focus();
+    }
+  }
+
+  async function calculateAndShowStatistics() {
+    openStatisticsModal();
+    statisticsTableBody.replaceChildren();
+    statisticsSubtitle.textContent = "Preparing the current data set…";
+    statisticsFootnote.textContent = "";
+
+    if (!currentForecastPayload) {
+      setStatisticsStatus(
+        "No forecast data is currently loaded. Load a forecast and try again.",
+        true
+      );
+      return;
+    }
+
+    const forecastSnapshot = currentForecastPayload;
+    setStatisticsStatus("Loading spot prices and calculating statistics…");
+
+    try {
+      const spotPayload = await fetchSpotPricePayload(forecastSnapshot);
+
+      if (forecastSnapshot !== currentForecastPayload) {
+        setStatisticsStatus(
+          "The forecast changed while statistics were being calculated. Please try again.",
+          true
+        );
+        return;
+      }
+
+      renderStatistics(forecastSnapshot, spotPayload);
+
+    } catch (error) {
+      console.error("Statistics calculation failed:", error);
+
+      setStatisticsStatus(
+        "Unable to load spot prices or calculate statistics. Please try again.",
+        true
+      );
+    }
+  }
+
   // Touch start
   chartDiv.addEventListener("touchstart", event => {
       if (event.touches.length !== 1) return;
@@ -1761,6 +2353,17 @@
   }
 
   // --- Event Listeners ---
+  calculateStatisticsButton.addEventListener("click", calculateAndShowStatistics);
+  statisticsCloseButton.addEventListener("click", closeStatisticsModal);
+  statisticsModal.addEventListener("click", event => {
+    if (event.target === statisticsModal) closeStatisticsModal();
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !statisticsModal.hidden) {
+      closeStatisticsModal();
+    }
+  });
+
   loadButton.addEventListener('click', () => {
     // closeControlsDrawerAfterSelection();
     loadForecastByDate(forecastDateInput.value);
