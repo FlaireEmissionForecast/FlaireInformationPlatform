@@ -180,8 +180,8 @@ const STATISTICS_MARKUP = `
             <nav id="statistics-relationship-selector" class="statistics-view-selector" aria-label="Relationship graph views">
               <button type="button" class="statistics-view-button" data-view="scatter" aria-pressed="true">Series vs spot</button>
               <button type="button" class="statistics-view-button" data-view="rolling">Rolling correlation</button>
-              <button type="button" class="statistics-view-button" data-view="actual-predicted">Actual vs predicted</button>
-              <button type="button" class="statistics-view-button" data-view="regression-stats">Regression statistics</button>
+              <button type="button" class="statistics-view-button" data-view="actual-predicted">Actual vs pred.</button>
+              <button type="button" class="statistics-view-button" data-view="regression-stats">Regression stats</button>
             </nav>
             <label id="statistics-window-control" class="statistics-window-control" hidden>
               Window
@@ -199,7 +199,7 @@ const STATISTICS_MARKUP = `
             <nav id="statistics-errors-selector" class="statistics-view-selector" aria-label="Error graph views">
               <button type="button" class="statistics-view-button" data-view="residual-time" aria-pressed="true">Residuals over time</button>
               <button type="button" class="statistics-view-button" data-view="histogram" aria-pressed="false">Histogram</button>
-              <button type="button" class="statistics-view-button" data-view="residual-fitted" aria-pressed="false">Residuals vs fitted</button>
+              <button type="button" class="statistics-view-button" data-view="residual-fitted" aria-pressed="false">Residuals vs pred.</button>
               <button type="button" class="statistics-view-button" data-view="hourly" aria-pressed="false">Hourly profile</button>
             </nav>
           </div>
@@ -863,7 +863,7 @@ export class StatisticsDialog {
       }];
       layout = this.commonLayout(theme, {
         xaxis: { title: { text: "Hour of day" }, categoryorder: "array", categoryarray: labels, gridcolor: theme.grid },
-        yaxis: { title: { text: `Average residual (${unit})` }, gridcolor: theme.grid },
+        yaxis: { title: { text: `Avg. residual (${unit})` }, gridcolor: theme.grid },
         shapes: [zeroShape("y")],
         showlegend: false
       });
@@ -879,7 +879,7 @@ export class StatisticsDialog {
       customdata: pairs.map(pair => [pair.y, pair.fitted, pair.x]),
       connectgaps: false,
       line: { color, width: 1.7 }, marker: { color, size: 5, opacity: 0.9 },
-      hovertemplate: `Actual: %{customdata[0]:.3f} ${unit}<br>Predicted: %{customdata[1]:.3f} ${unit}<br>Residual: %{y:.3f} ${unit}<br>Spot price: %{customdata[2]:.2f} €/MWh<extra>${name}</extra>`
+      hovertemplate: `%{customdata[0]:.3f} ${unit}<br>Predicted: %{customdata[1]:.3f} ${unit}<br>Residual: %{y:.3f} ${unit}<br>Spot price: %{customdata[2]:.2f} €/MWh<extra>${name}</extra>`
     };
   }
 
