@@ -113,7 +113,7 @@ body.dark-theme .statistics-status.is-warning { color: #ffc36b; }
 .statistics-view-button[aria-pressed="true"] { background: #4a90e2; border-color: #4a90e2; color: #fff; }
 .statistics-window-control {
   display: flex; flex: 0 0 auto; align-items: center; gap: 6px; padding-left: 4px;
-  color: var(--stats-muted); font-size: 10px; white-space: nowrap;
+  color: var(--stats-muted); font-size: 11px; white-space: nowrap;
 }
 .statistics-window-control[hidden] { display: none; }
 .statistics-window-select { margin: 0; padding: 4px 5px; }
@@ -181,16 +181,23 @@ const STATISTICS_MARKUP = `
           <div class="statistics-chart-toolbar">
             <nav id="statistics-relationship-selector" class="statistics-view-selector" aria-label="Relationship graph views">
               <button type="button" class="statistics-view-button" data-view="scatter" aria-pressed="true">Series vs spot</button>
-              <button type="button" class="statistics-view-button" data-view="rolling">Rolling correlation</button>
+              <button type="button" class="statistics-view-button" data-view="regression-stats">Error vs spot</button>
               <button type="button" class="statistics-view-button" data-view="actual-predicted">Actual vs pred.</button>
-              <button type="button" class="statistics-view-button" data-view="regression-stats">Regression stats</button>
+              <button type="button" class="statistics-view-button" data-view="rolling">Rolling correlation</button>
             </nav>
-            <label id="statistics-window-control" class="statistics-window-control" hidden>
-              Window
-              <select id="statistics-window-select" class="statistics-window-select" aria-label="Rolling correlation window">
-                <option value="6">6</option><option value="12" selected>12</option><option value="24">24</option>
-              </select>
-            </label>
+              <label id="statistics-window-control"
+                    class="statistics-window-control"
+                    hidden>
+                <span id="statistics-window-label">Window</span>
+                <select id="statistics-window-select"
+                        class="statistics-window-select"
+                        aria-label="Rolling window or error metric"
+                        data-spot-error-metric="MAE">
+                  <option value="6">6</option>
+                  <option value="12" selected>12</option>
+                  <option value="24">24</option>
+                </select>
+              </label>
           </div>
           <p id="statistics-relationship-description" class="statistics-chart-description"></p>
           <div id="statistics-relationship-chart" class="statistics-chart" role="img" aria-label="Selected relationship graph"></div>
@@ -400,31 +407,55 @@ export class StatisticsDialog {
 
   bindEvents() {
     this.closeButton.addEventListener("click", () => this.close());
+
     this.modal.addEventListener("click", event => {
       if (event.target === this.modal) this.close();
     });
+
     document.addEventListener("keydown", event => {
       if (event.key === "Escape" && !this.modal.hidden) this.close();
     });
+
     this.metricSelect.addEventListener("change", () => {
       this.metric = this.metricSelect.value;
       this.renderTable();
     });
+
     this.windowSelect.addEventListener("change", () => {
-      const parsed = Number(this.windowSelect.value);
-      if ([6, 12, 24].includes(parsed)) this.rollingWindow = parsed;
-      if (this.relationshipView === "rolling") this.renderRelationshipChart();
+      if (this.relationshipView === "rolling") {
+        const parsed = Number(this.windowSelect.value);
+
+        if ([6, 12, 24].includes(parsed)) {
+          this.rollingWindow = parsed;
+        }
+      } else if (this.relationshipView === "regression-stats") {
+        this.windowSelect.dataset.spotErrorMetric =
+          this.windowSelect.value;
+      }
+
+      if (
+        this.relationshipView === "rolling" ||
+        this.relationshipView === "regression-stats"
+      ) {
+        this.renderRelationshipChart();
+      }
     });
+
     this.relationshipSelector.addEventListener("click", event => {
       const button = event.target.closest("button[data-view]");
+
       if (!button || !this.relationshipSelector.contains(button)) return;
+
       this.relationshipView = button.dataset.view;
       this.updateSelectorState();
       this.renderRelationshipChart();
     });
+
     this.errorsSelector.addEventListener("click", event => {
       const button = event.target.closest("button[data-view]");
+
       if (!button || !this.errorsSelector.contains(button)) return;
+
       this.errorView = button.dataset.view;
       this.updateSelectorState();
       this.renderErrorsChart();
@@ -565,12 +596,63 @@ export class StatisticsDialog {
   updateSelectorState() {
     const update = (selector, selected) => {
       selector.querySelectorAll("button[data-view]").forEach(button => {
-        button.setAttribute("aria-pressed", String(button.dataset.view === selected));
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.view === selected)
+        );
       });
     };
+
     update(this.relationshipSelector, this.relationshipView);
     update(this.errorsSelector, this.errorView);
-    this.windowControl.hidden = this.relationshipView !== "rolling";
+
+    const isRolling = this.relationshipView === "rolling";
+    const isSpotError = this.relationshipView === "regression-stats";
+
+    this.windowControl.hidden = !isRolling && !isSpotError;
+
+    const label = this.windowControl.querySelector(
+      "#statistics-window-label"
+    );
+
+    const setOptions = (values, selectedValue) => {
+      const options = values.map(value => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        return option;
+      });
+
+      this.windowSelect.replaceChildren(...options);
+      this.windowSelect.value = String(selectedValue);
+    };
+
+    if (isRolling) {
+      label.textContent = "Window";
+
+      setOptions(
+        ["6", "12", "24"],
+        this.rollingWindow
+      );
+    } else if (isSpotError) {
+      label.textContent = "Error metric";
+
+      const availableMetrics = ["MAE", "MAPE", "RMSE"];
+
+      let selectedMetric =
+        this.windowSelect.dataset.spotErrorMetric || "MAE";
+
+      if (!availableMetrics.includes(selectedMetric)) {
+        selectedMetric = "MAE";
+      }
+
+      this.windowSelect.dataset.spotErrorMetric = selectedMetric;
+
+      setOptions(
+        availableMetrics,
+        selectedMetric
+      );
+    }
   }
 
   renderCurrentCharts() {
@@ -581,6 +663,7 @@ export class StatisticsDialog {
 
   getChartTheme() {
     const isDark = (this.getTheme?.() || "light") === "dark";
+
     return {
       isDark,
       template: isDark ? "plotly_dark" : "plotly_white",
@@ -611,133 +694,570 @@ export class StatisticsDialog {
     const token = ++this.relationshipRenderToken;
     const model = this.model;
     const theme = this.getChartTheme();
+
     if (!window.Plotly) {
       this.relationshipDescription.textContent = "";
-      this.setChartEmpty(this.relationshipChart, "Plotly is not available. Reload the page and try again.");
+      this.setChartEmpty(
+        this.relationshipChart,
+        "Plotly is not available. Reload the page and try again."
+      );
       return;
     }
+
     if (!model?.combinedRegression?.pairs?.length) {
       this.relationshipDescription.textContent = "";
-      this.setChartEmpty(this.relationshipChart, "A complete set of matched, non-constant series and spot-price observations is required for regression graphs.");
+      this.setChartEmpty(
+        this.relationshipChart,
+        "A complete set of matched, non-constant series and spot-price observations is required for regression graphs."
+      );
       return;
     }
 
     const regression = model.combinedRegression;
     const pairs = regression.pairs;
-    const historyPairs = pairs.filter(pair => !model.forecastKeys.has(pair.key));
-    const forecastPairs = pairs.filter(pair => model.forecastKeys.has(pair.key));
+
+    const historyPairs = pairs.filter(
+      pair => !model.forecastKeys.has(pair.key)
+    );
+
+    const forecastPairs = pairs.filter(
+      pair => model.forecastKeys.has(pair.key)
+    );
+
     const unit = model.unit || "Series value";
+
     let traces = [];
     let layout = this.commonLayout(theme);
 
+    // ---------------------------------------------------------
+    // 1. Series vs spot
+    // ---------------------------------------------------------
+
     if (this.relationshipView === "scatter") {
-      this.relationshipDescription.textContent = "Series values against matched spot prices, with the combined-series least-squares fit.";
-      if (historyPairs.length) traces.push(this.relationshipScatterTrace(historyPairs, "History", theme.history, unit));
-      if (forecastPairs.length) traces.push(this.relationshipScatterTrace(forecastPairs, "Forecast", theme.forecast, unit));
+      this.relationshipDescription.textContent =
+        "Series values against matched spot prices, with the combined-series least-squares fit.";
+
+      if (historyPairs.length) {
+        traces.push(
+          this.relationshipScatterTrace(
+            historyPairs,
+            "History",
+            theme.history,
+            unit
+          )
+        );
+      }
+
+      if (forecastPairs.length) {
+        traces.push(
+          this.relationshipScatterTrace(
+            forecastPairs,
+            "Forecast",
+            theme.forecast,
+            unit
+          )
+        );
+      }
+
       const minSpot = Math.min(...pairs.map(pair => pair.x));
       const maxSpot = Math.max(...pairs.map(pair => pair.x));
+
       traces.push({
-        type: "scatter", mode: "lines", name: "OLS best fit",
+        type: "scatter",
+        mode: "lines",
+        name: "OLS best fit",
         x: [minSpot, maxSpot],
-        y: [regression.intercept + regression.slope * minSpot, regression.intercept + regression.slope * maxSpot],
-        line: { color: theme.fit, width: 2.5, dash: "dash" },
-        hovertemplate: `Fitted series: %{y:.3f} ${unit}<extra>OLS fit</extra>`
+        y: [
+          regression.intercept + regression.slope * minSpot,
+          regression.intercept + regression.slope * maxSpot
+        ],
+        line: {
+          color: theme.fit,
+          width: 2.5,
+          dash: "dash"
+        },
+        hovertemplate:
+          `Fitted series: %{y:.3f} ${unit}<extra>OLS fit</extra>`
       });
+
       const sign = regression.intercept >= 0 ? "+" : "−";
-      const annotation = `Series = ${formatCoefficient(regression.slope)} × spot ${sign} ${formatCoefficient(Math.abs(regression.intercept))}<br>R² = ${formatStatistic(regression.rSquared)} · Pearson r = ${formatStatistic(regression.correlation)}`;
+
+      const annotation =
+        `Series = ${formatCoefficient(regression.slope)} × spot ${sign} ${formatCoefficient(Math.abs(regression.intercept))}<br>` +
+        `R² = ${formatStatistic(regression.rSquared)} · Pearson r = ${formatStatistic(regression.correlation)}`;
+
       layout = this.commonLayout(theme, {
-        xaxis: { title: { text: "Spot price (€/MWh)" }, gridcolor: theme.grid },
-        yaxis: { title: { text: unit }, gridcolor: theme.grid },
+        xaxis: {
+          title: { text: "Spot price (€/MWh)" },
+          gridcolor: theme.grid
+        },
+        yaxis: {
+          title: { text: unit },
+          gridcolor: theme.grid
+        },
         annotations: [{
-          xref: "paper", yref: "paper", x: 0.02, y: 0.98, xanchor: "left", yanchor: "top",
-          showarrow: false, text: annotation, align: "left",
-          bgcolor: theme.isDark ? "rgba(28,34,41,.86)" : "rgba(255,255,255,.86)",
-          bordercolor: theme.isDark ? "#56616d" : "#dce2e8", borderwidth: 1, borderpad: 4,
-          font: { size: 10, color: theme.text }
+          xref: "paper",
+          yref: "paper",
+          x: 0.98,
+          y: 0.02,
+          xanchor: "right",
+          yanchor: "bottom",
+          showarrow: false,
+          text: annotation,
+          align: "left",
+          bgcolor: theme.isDark
+            ? "rgba(28,34,41,.86)"
+            : "rgba(255,255,255,.86)",
+          bordercolor: theme.isDark ? "#56616d" : "#dce2e8",
+          borderwidth: 1,
+          borderpad: 4,
+          font: {
+            size: 10,
+            color: theme.text
+          }
         }]
       });
+
+    // ---------------------------------------------------------
+    // 2. Rolling correlation
+    // ---------------------------------------------------------
+
     } else if (this.relationshipView === "rolling") {
-      this.relationshipDescription.textContent = `Rolling Pearson correlation using ${this.rollingWindow} consecutive matched observations.`;
+      this.relationshipDescription.textContent =
+        `Rolling Pearson correlation using ${this.rollingWindow} consecutive matched observations.`;
+
       if (pairs.length < this.rollingWindow) {
-        this.setChartEmpty(this.relationshipChart, `At least ${this.rollingWindow} matched observations are required for this rolling window; ${pairs.length} are available.`);
+        this.setChartEmpty(
+          this.relationshipChart,
+          `At least ${this.rollingWindow} matched observations are required for this rolling window; ${pairs.length} are available.`
+        );
         return;
       }
+
       const rolling = [];
-      for (let i = this.rollingWindow - 1; i < pairs.length; i++) {
-        const slice = pairs.slice(i - this.rollingWindow + 1, i + 1);
-        rolling.push({ timestamp: pairs[i].timestamp, value: pearsonCorrelation(slice) });
+
+      for (
+        let i = this.rollingWindow - 1;
+        i < pairs.length;
+        i++
+      ) {
+        const slice = pairs.slice(
+          i - this.rollingWindow + 1,
+          i + 1
+        );
+
+        rolling.push({
+          timestamp: pairs[i].timestamp,
+          value: pearsonCorrelation(slice)
+        });
       }
+
       traces = [{
-        type: "scatter", mode: "lines+markers", name: `Rolling Pearson r (${this.rollingWindow})`,
-        x: rolling.map(item => item.timestamp), y: rolling.map(item => item.value),
-        connectgaps: false, line: { color: theme.history, width: 2 },
-        marker: { color: theme.history, size: 4 },
-        hovertemplate: "Time: %{x}<br>Pearson r: %{y:.3f}<extra></extra>"
+        type: "scatter",
+        mode: "lines+markers",
+        name: `Rolling Pearson r (${this.rollingWindow})`,
+        x: rolling.map(item => item.timestamp),
+        y: rolling.map(item => item.value),
+        connectgaps: false,
+        line: {
+          color: theme.history,
+          width: 2
+        },
+        marker: {
+          color: theme.history,
+          size: 4
+        },
+        hovertemplate:
+          "Time: %{x}<br>Pearson r: %{y:.3f}<extra></extra>"
       }];
+
       layout = this.commonLayout(theme, {
-        xaxis: { type: "date", title: { text: "Time" }, tickformat: "%d.%m.%y", gridcolor: theme.grid },
-        yaxis: { title: { text: "Pearson correlation" }, range: [-1, 1], tickmode: "linear", dtick: 0.5, gridcolor: theme.grid },
-        shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: 0, y1: 0, line: { color: theme.fit, width: 1.4, dash: "dash" } }]
-      });
-    } else if (this.relationshipView === "actual-predicted") {
-      this.relationshipDescription.textContent = "Actual values versus regression predictions. Points above the diagonal are underestimates; points below it are overestimates.";
-      if (historyPairs.length) traces.push(this.actualPredictedTrace(historyPairs, "History", theme.history, unit));
-      if (forecastPairs.length) traces.push(this.actualPredictedTrace(forecastPairs, "Forecast", theme.forecast, unit));
-      const minValue = Math.min(...pairs.flatMap(pair => [pair.y, pair.fitted]));
-      const maxValue = Math.max(...pairs.flatMap(pair => [pair.y, pair.fitted]));
-      traces.push({
-        type: "scatter", mode: "lines", name: "Perfect agreement",
-        x: [minValue, maxValue], y: [minValue, maxValue],
-        line: { color: theme.fit, width: 1.8, dash: "dash" },
-        hovertemplate: "Perfect agreement: %{x:.3f}<extra></extra>"
-      });
-      layout = this.commonLayout(theme, {
-        xaxis: { title: { text: `Predicted (${unit})` }, gridcolor: theme.grid, zeroline: false },
-        yaxis: { title: { text: `Actual (${unit})` }, gridcolor: theme.grid, zeroline: false, scaleanchor: "x", scaleratio: 1 },
-        annotations: [{
-          xref: "paper", yref: "paper", x: 0.02, y: 0.98, xanchor: "left", yanchor: "top",
-          showarrow: false, text: "Above line: underestimation<br>Below line: overestimation",
-          align: "left", font: { size: 10, color: theme.muted }
+        xaxis: {
+          type: "date",
+          title: { text: "Time" },
+          tickformat: "%d.%m.%y",
+          gridcolor: theme.grid
+        },
+        yaxis: {
+          title: { text: "Pearson correlation" },
+          range: [-1, 1],
+          tickmode: "linear",
+          dtick: 0.5,
+          gridcolor: theme.grid
+        },
+        shapes: [{
+          type: "line",
+          xref: "paper",
+          x0: 0,
+          x1: 1,
+          yref: "y",
+          y0: 0,
+          y1: 0,
+          line: {
+            color: theme.fit,
+            width: 1.4,
+            dash: "dash"
+          }
         }]
       });
-    } else {
-      this.relationshipDescription.textContent = "Regression equation and core fit statistics for the combined, timestamp-aligned observations.";
-      const sign = regression.intercept >= 0 ? "+" : "−";
-      const rows = [
-        ["Regression equation", `Series = ${formatCoefficient(regression.slope)} × spot ${sign} ${formatCoefficient(Math.abs(regression.intercept))}`],
-        ["Slope", formatCoefficient(regression.slope)],
-        ["Intercept", `${formatCoefficient(regression.intercept)} ${unit}`],
-        ["R²", formatStatistic(regression.rSquared, 4)],
-        ["Pearson correlation (r)", formatStatistic(regression.correlation, 4)],
-        ["Sample count", String(regression.count)]
-      ];
-      const narrow = this.relationshipChart.clientWidth < 460;
-      const annotations = rows.map(([label, value], index) => {
-        const column = narrow ? 0 : index % 2;
-        const row = narrow ? index : Math.floor(index / 2);
-        const rowCount = narrow ? rows.length : 3;
-        return {
-          xref: "paper", yref: "paper",
-          x: narrow ? 0.04 : (column ? 0.53 : 0.04),
-          y: 0.94 - row * (0.88 / rowCount),
-          xanchor: "left", yanchor: "top", showarrow: false,
-          align: "left", width: narrow ? Math.max(220, this.relationshipChart.clientWidth - 48) : Math.max(180, this.relationshipChart.clientWidth * 0.40),
-          text: `<b>${label}</b><br>${value}`,
-          bgcolor: theme.isDark ? "rgba(37,46,56,.92)" : "rgba(248,250,252,.96)",
-          bordercolor: theme.isDark ? "#53606d" : "#dce2e8", borderwidth: 1, borderpad: 7,
-          font: { size: 11, color: theme.text }
-        };
+
+    // ---------------------------------------------------------
+    // 3. Actual vs predicted
+    // ---------------------------------------------------------
+
+    } else if (this.relationshipView === "actual-predicted") {
+      this.relationshipDescription.textContent =
+        "Actual values versus regression predictions. Points above the diagonal are underestimates; points below it are overestimates.";
+
+      if (historyPairs.length) {
+        traces.push(
+          this.actualPredictedTrace(
+            historyPairs,
+            "History",
+            theme.history,
+            unit
+          )
+        );
+      }
+
+      if (forecastPairs.length) {
+        traces.push(
+          this.actualPredictedTrace(
+            forecastPairs,
+            "Forecast",
+            theme.forecast,
+            unit
+          )
+        );
+      }
+
+      const minValue = Math.min(
+        ...pairs.flatMap(pair => [pair.y, pair.fitted])
+      );
+
+      const maxValue = Math.max(
+        ...pairs.flatMap(pair => [pair.y, pair.fitted])
+      );
+
+      traces.push({
+        type: "scatter",
+        mode: "lines",
+        name: "Perfect agreement",
+        x: [minValue, maxValue],
+        y: [minValue, maxValue],
+        line: {
+          color: theme.fit,
+          width: 1.8,
+          dash: "dash"
+        },
+        hovertemplate:
+          "Perfect agreement: %{x:.3f}<extra></extra>"
       });
-      traces = [{ type: "scatter", mode: "markers", x: [0], y: [0], marker: { opacity: 0 }, hoverinfo: "skip", showlegend: false }];
+
       layout = this.commonLayout(theme, {
-        margin: { l: 4, r: 4, t: 8, b: 8 },
-        xaxis: { visible: false, range: [0, 1], fixedrange: true },
-        yaxis: { visible: false, range: [0, 1], fixedrange: true },
-        annotations
+        xaxis: {
+          title: { text: `Predicted (${unit})` },
+          gridcolor: theme.grid,
+          zeroline: false
+        },
+        yaxis: {
+          title: { text: `Actual (${unit})` },
+          gridcolor: theme.grid,
+          zeroline: false,
+          scaleanchor: "x",
+          scaleratio: 1
+        },
+        annotations: [{
+          xref: "paper",
+          yref: "paper",
+          x: 0.02,
+          y: 0.98,
+          xanchor: "left",
+          yanchor: "top",
+          showarrow: false,
+          text: "Above line: underestimation<br>Below line: overestimation",
+          align: "left",
+          font: {
+            size: 10,
+            color: theme.muted
+          }
+        }]
+      });
+
+    // ---------------------------------------------------------
+    // 4. Error metric by spot-price range
+    // ---------------------------------------------------------
+
+    } else {
+      const availableMetrics = ["MAE", "MAPE", "RMSE"];
+
+      let metric =
+        this.windowSelect.dataset.spotErrorMetric || "MAE";
+
+      if (!availableMetrics.includes(metric)) {
+        metric = "MAE";
+      }
+
+      this.relationshipDescription.textContent =
+        `${metric} by spot-price range, shown separately for history and forecast. ` +
+        "Spot prices are divided into up to eight equal-width bands.";
+
+      // Determine spot-price range and number of bands.
+      const minSpot = Math.min(...pairs.map(pair => pair.x));
+      const maxSpot = Math.max(...pairs.map(pair => pair.x));
+
+      const binCount = minSpot === maxSpot
+        ? 1
+        : Math.min(
+            8,
+            Math.max(1, Math.ceil(Math.sqrt(pairs.length / 2)))
+          );
+
+      const binWidth = binCount > 1
+        ? (maxSpot - minSpot) / binCount
+        : 0;
+
+      // Use the same near-zero threshold as the statistics table
+      // when calculating MAPE.
+      const maxAbsActual = Math.max(
+        ...pairs.map(pair => Math.abs(pair.y))
+      );
+
+      const nearZeroThreshold = Math.max(
+        1e-9,
+        maxAbsActual * 1e-6
+      );
+
+      // Create the price bands.
+      const bins = Array.from(
+        { length: binCount },
+        (_, index) => {
+          const start = binCount === 1
+            ? minSpot
+            : minSpot + index * binWidth;
+
+          const end = index === binCount - 1
+            ? maxSpot
+            : start + binWidth;
+
+          return {
+            start,
+            end,
+            history: [],
+            forecast: []
+          };
+        }
+      );
+
+      // Assign each observation to its spot-price band.
+      pairs.forEach(pair => {
+        let index = binCount === 1
+          ? 0
+          : Math.floor((pair.x - minSpot) / binWidth);
+
+        index = Math.min(
+          binCount - 1,
+          Math.max(0, index)
+        );
+
+        const bin = bins[index];
+
+        if (model.forecastKeys.has(pair.key)) {
+          bin.forecast.push(pair);
+        } else {
+          bin.history.push(pair);
+        }
+      });
+
+      // Calculate the selected error metric for a group of observations.
+      const calculateBinMetric = observations => {
+        const valid = observations.filter(
+          pair =>
+            Number.isFinite(pair.residual) &&
+            Number.isFinite(pair.y)
+        );
+
+        const count = valid.length;
+
+        if (count === 0) {
+          return {
+            value: null,
+            count: 0,
+            includedCount: 0,
+            excludedCount: 0
+          };
+        }
+
+        const errors = valid.map(pair => pair.residual);
+
+        if (metric === "MAE") {
+          const value = errors.reduce(
+            (sum, error) => sum + Math.abs(error),
+            0
+          ) / count;
+
+          return {
+            value,
+            count,
+            includedCount: count,
+            excludedCount: 0
+          };
+        }
+
+        if (metric === "RMSE") {
+          const value = Math.sqrt(
+            errors.reduce(
+              (sum, error) => sum + error * error,
+              0
+            ) / count
+          );
+
+          return {
+            value,
+            count,
+            includedCount: count,
+            excludedCount: 0
+          };
+        }
+
+        // MAPE: exclude zero and near-zero actual values,
+        // using exactly the same threshold as metricResult().
+        const eligible = valid.filter(
+          pair => Math.abs(pair.y) > nearZeroThreshold
+        );
+
+        const excludedCount = count - eligible.length;
+
+        if (!eligible.length) {
+          return {
+            value: null,
+            count,
+            includedCount: 0,
+            excludedCount
+          };
+        }
+
+        const value = eligible.reduce(
+          (sum, pair) =>
+            sum + Math.abs(pair.residual / pair.y),
+          0
+        ) / eligible.length * 100;
+
+        return {
+          value,
+          count,
+          includedCount: eligible.length,
+          excludedCount
+        };
+      };
+
+      // Format spot-price ranges for the X-axis.
+      const binLabels = bins.map(bin =>
+        `${formatStatistic(bin.start, 1)} – ${formatStatistic(bin.end, 1)}`
+      );
+
+      // MAPE cannot be calculated when all actual values are
+      // zero or below the near-zero exclusion threshold.
+      if (
+        metric === "MAPE" &&
+        !pairs.some(
+          pair => Math.abs(pair.y) > nearZeroThreshold
+        )
+      ) {
+        this.setChartEmpty(
+          this.relationshipChart,
+          "MAPE is unavailable because all actual values are zero or near zero."
+        );
+        return;
+      }
+
+      const metricHover = metric === "MAPE"
+        ? "MAPE: %{y:.2f}%"
+        : `${metric}: %{y:.3f} ${unit}`;
+
+      const countHover = metric === "MAPE"
+        ? "<br>Observations: %{customdata[0]}" +
+          "<br>Included in MAPE: %{customdata[1]}" +
+          "<br>Excluded near-zero actuals: %{customdata[2]}"
+        : "<br>Observations: %{customdata[0]}";
+
+      // Build a bar trace for either History or Forecast.
+      const createMetricTrace = (group, name, color) => {
+        const results = bins.map(bin =>
+          calculateBinMetric(bin[group])
+        );
+
+        return {
+          type: "bar",
+          name,
+          x: binLabels,
+          y: results.map(result => result.value),
+          customdata: results.map(result => [
+            result.count,
+            result.includedCount,
+            result.excludedCount
+          ]),
+          marker: {
+            color
+          },
+          opacity: 0.88,
+          hovertemplate:
+            `Spot-price range: %{x} €/MWh<br>` +
+            `${metricHover}` +
+            `${countHover}` +
+            `<extra>${name}</extra>`
+        };
+      };
+
+      if (historyPairs.length) {
+        traces.push(
+          createMetricTrace(
+            "history",
+            "History",
+            theme.history
+          )
+        );
+      }
+
+      if (forecastPairs.length) {
+        traces.push(
+          createMetricTrace(
+            "forecast",
+            "Forecast",
+            theme.forecast
+          )
+        );
+      }
+
+      const metricAxisTitle = metric === "MAPE"
+        ? "MAPE (%)"
+        : `${metric} (${unit})`;
+
+      layout = this.commonLayout(theme, {
+        barmode: "group",
+        bargap: 0.18,
+        xaxis: {
+          title: { text: "Spot-price range (€/MWh)" },
+          categoryorder: "array",
+          categoryarray: binLabels,
+          gridcolor: theme.grid
+        },
+        yaxis: {
+          title: { text: metricAxisTitle },
+          gridcolor: theme.grid,
+          rangemode: "tozero"
+        },
+        showlegend: true
       });
     }
 
-    this.drawPlot(this.relationshipChart, traces, layout, token, "relationship");
+    this.drawPlot(
+      this.relationshipChart,
+      traces,
+      layout,
+      token,
+      "relationship"
+    );
   }
 
   relationshipScatterTrace(pairs, name, color, unit) {
