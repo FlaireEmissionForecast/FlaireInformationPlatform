@@ -74,9 +74,10 @@ body.dark-theme .statistics-status.is-warning { color: #ffc36b; }
 .statistics-table tbody tr:nth-child(even) td,
 .statistics-table tbody tr:nth-child(even) th { background: var(--stats-row-alt); }
 .statistics-table tbody tr:last-child th, .statistics-table tbody tr:last-child td { border-bottom: 0; }
-.statistics-error-header { min-width: 170px; }
+.statistics-error-header { min-width: 100px; }
+.statistics-error-header-content { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .statistics-metric-select, .statistics-window-select {
-  max-width: 130px; margin-left: 5px; padding: 4px 7px; border: 1px solid var(--stats-border);
+  max-width: 130px; padding: 4px 7px; border: 1px solid var(--stats-border);
   border-radius: 6px; background: var(--stats-surface); color: var(--stats-text);
   font: inherit; font-size: 11px; text-transform: none; letter-spacing: normal;
 }
@@ -96,13 +97,13 @@ body.dark-theme .statistics-status.is-warning { color: #ffc36b; }
   font-size: 11px; line-height: 1.4;
 }
 .statistics-chart-toolbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 8px 10px 0; min-width: 0;
+  display: flex; flex-flow: row wrap; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 8px 10px 0; min-width: 0;
 }
 .statistics-view-selector {
-  display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%;
-  overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin;
-  scroll-snap-type: x proximity; padding: 2px 2px 5px;
+  display: flex; flex: 1 1 max-content; align-items: center; gap: 5px;
+  min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain;
+  scrollbar-width: thin; scroll-snap-type: x proximity; padding: 2px 2px 5px;
 }
 .statistics-view-button {
   flex: 0 0 auto; padding: 5px 9px; border: 1px solid var(--stats-border);
@@ -111,7 +112,7 @@ body.dark-theme .statistics-status.is-warning { color: #ffc36b; }
 }
 .statistics-view-button[aria-pressed="true"] { background: #4a90e2; border-color: #4a90e2; color: #fff; }
 .statistics-window-control {
-  display: flex; flex: 0 0 auto; align-items: center; gap: 4px;
+  display: flex; flex: 0 0 auto; align-items: center; gap: 6px; padding-left: 4px;
   color: var(--stats-muted); font-size: 10px; white-space: nowrap;
 }
 .statistics-window-control[hidden] { display: none; }
@@ -123,7 +124,7 @@ body.dark-theme .statistics-status.is-warning { color: #ffc36b; }
   font-size: 12px; line-height: 1.5; text-align: center;
 }
 .statistics-footnote { margin: 0; padding: 10px 22px 16px; color: var(--stats-muted); font-size: 11px; line-height: 1.55; }
-@media (max-width: 760px) {
+@media (max-width: 700px) {
   .statistics-modal { padding: 4px; }
   .statistics-dialog { max-height: 96vh; border-radius: 10px; }
   .statistics-charts { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 10px 9px 2px; }
@@ -133,8 +134,6 @@ body.dark-theme .statistics-status.is-warning { color: #ffc36b; }
   .statistics-status { padding: 9px 14px; }
   .statistics-footnote { padding: 10px 14px 14px; }
   .statistics-table th, .statistics-table td { padding: 5px 5px; }
-  .statistics-chart-toolbar { align-items: flex-start; flex-direction: column; }
-  .statistics-window-control { align-self: flex-end; }
 }
 @media (prefers-reduced-motion: reduce) {
   .statistics-view-button { transition: none; }
@@ -162,12 +161,15 @@ const STATISTICS_MARKUP = `
             <th scope="col">Average</th><th scope="col">Median</th>
             <th scope="col">Std. dev.</th><th scope="col">Pearson r</th>
             <th scope="col">OLS R²</th>
-            <th scope="col" class="statistics-error-header">Error metric
-              <select id="statistics-metric-select" class="statistics-metric-select" aria-label="Select error metric">
-                <option value="MAE" selected>MAE</option>
-                <option value="MAPE">MAPE</option>
-                <option value="RMSE">RMSE</option>
-              </select>
+            <th scope="col" class="statistics-error-header">
+              <span class="statistics-error-header-content">
+                Error metric
+                <select id="statistics-metric-select" class="statistics-metric-select" aria-label="Select error metric">
+                  <option value="MAE" selected>MAE</option>
+                  <option value="MAPE">MAPE</option>
+                  <option value="RMSE">RMSE</option>
+                </select>
+              </span>
             </th>
           </tr></thead>
           <tbody id="statistics-table-body"></tbody>
@@ -211,7 +213,6 @@ const STATISTICS_MARKUP = `
     </div>
   </section>
 </div>`;
-
 
 function normalizeTimestampKey(timestamp) {
   const date = new Date(timestamp);
