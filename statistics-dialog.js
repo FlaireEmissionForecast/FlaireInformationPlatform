@@ -1233,20 +1233,42 @@ export class StatisticsDialog {
         ? "MAPE (%)"
         : `${metric} (${unit})`;
 
+      const narrowChart = this.relationshipChart.clientWidth < 520;
+
       layout = this.commonLayout(theme, {
         barmode: "group",
         bargap: 0.18,
+
+        margin: {
+          l: 58,
+          r: 18,
+          t: 42,
+          b: narrowChart ? 135 : 80
+        },
+
         xaxis: {
-          title: { text: "Spot-price range (€/MWh)" },
+          title: {
+            text: "Spot-price range (€/MWh)",
+            standoff: 25
+          },
           categoryorder: "array",
           categoryarray: binLabels,
-          gridcolor: theme.grid
+          gridcolor: theme.grid,
+          automargin: true,
+          tickangle: "auto",
+          tickfont: {
+            size: narrowChart ? 9 : 10
+          }
         },
+
         yaxis: {
-          title: { text: metricAxisTitle },
+          title: {
+            text: metricAxisTitle
+          },
           gridcolor: theme.grid,
           rangemode: "tozero"
         },
+
         showlegend: true
       });
     }
