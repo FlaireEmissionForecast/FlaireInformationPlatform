@@ -29,8 +29,10 @@ DB_PATH    = os.getenv("DB_PATH", os.path.abspath("./db/forecasts.sqlite"))
 DEFAULT_TZ = os.getenv("OUTPUT_TZ", "Europe/Helsinki")
 API_KEY    = os.environ["FORECAST_API_KEY"] # A secret key to authenticate API POST request. Throws an error if not found
 
-# Define path to test website
-index_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../index.html"))
+# Define paths to website files
+base_path = os.path.dirname(os.path.abspath(__file__))
+index_path = os.path.join(base_path, "../index.html")
+statistics_js_path = os.path.join(base_path, "../statistics-dialog.js")
 
 api = FastAPI(title="Flip Forecast API", version="0.5.0")
 
@@ -802,6 +804,14 @@ def spotprice_range(
 @api.get("/")
 def serve_website():
     return FileResponse(index_path)
+
+# Serve Statistics dialog module
+@api.get("/statistics-dialog.js")
+def serve_statistics_dialog_js():
+    return FileResponse(
+        statistics_js_path,
+        media_type="application/javascript"
+    )
 
 # For browsers
 @api.get("/favicon.ico")
