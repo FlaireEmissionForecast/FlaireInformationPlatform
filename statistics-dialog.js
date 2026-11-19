@@ -5,6 +5,10 @@
  * statistics calculations, controls and Plotly rendering.
  */
 
+// Allow statistics and regression calculations to use available matched
+// observations when some day-ahead spot prices have not yet been published.
+const ALLOW_PARTIAL_SPOT_PRICE_COVERAGE = true;
+
 const STATISTICS_STYLES = `
 .statistics-modal {
   --stats-surface: #fff;
@@ -269,9 +273,19 @@ function calculateDescriptiveStatistics(entries) {
   return { count, minimum: sorted[0], maximum: sorted[count - 1], average, median, standardDeviation };
 }
 
-// This is the page's existing least-squares calculation, retained in the module.
-function calculateRegressionStatistics(seriesEntries, spotByTimestamp, hasFullCoverage) {
-  if (!hasFullCoverage || seriesEntries.length < 2) return null;
+function calculateRegressionStatistics(
+  seriesEntries,
+  spotByTimestamp,
+  hasFullCoverage,
+  allowPartialCoverage = false
+) {
+  if (
+    (!hasFullCoverage && !allowPartialCoverage) ||
+    seriesEntries.length < 2
+  ) {
+    return null;
+  }
+
   const pairs = seriesEntries
     .filter(entry => spotByTimestamp.has(entry.key))
     .map(entry => ({
@@ -280,25 +294,46 @@ function calculateRegressionStatistics(seriesEntries, spotByTimestamp, hasFullCo
       x: spotByTimestamp.get(entry.key),
       y: entry.value
     }));
-  if (pairs.length !== seriesEntries.length || pairs.length < 2) return null;
+
+  if (
+    pairs.length < 2 ||
+    (!allowPartialCoverage && pairs.length !== seriesEntries.length)
+  ) {
+    return null;
+  }
 
   const meanX = pairs.reduce((sum, pair) => sum + pair.x, 0) / pairs.length;
   const meanY = pairs.reduce((sum, pair) => sum + pair.y, 0) / pairs.length;
   const sumXX = pairs.reduce((sum, pair) => sum + (pair.x - meanX) ** 2, 0);
   const sumYY = pairs.reduce((sum, pair) => sum + (pair.y - meanY) ** 2, 0);
   const sumXY = pairs.reduce((sum, pair) => sum + (pair.x - meanX) * (pair.y - meanY), 0);
+
   if (sumXX <= 0 || sumYY <= 0) return null;
 
   const correlation = Math.max(-1, Math.min(1, sumXY / Math.sqrt(sumXX * sumYY)));
   const slope = sumXY / sumXX;
   const intercept = meanY - slope * meanX;
+
   const pairsWithResiduals = pairs.map(pair => {
     const fitted = intercept + slope * pair.x;
     return { ...pair, fitted, residual: pair.y - fitted };
   });
-  const residualSumSquares = pairsWithResiduals.reduce((sum, pair) => sum + pair.residual ** 2, 0);
+
+  const residualSumSquares = pairsWithResiduals.reduce(
+    (sum, pair) => sum + pair.residual ** 2,
+    0
+  );
+
   const rSquared = Math.max(0, Math.min(1, 1 - residualSumSquares / sumYY));
-  return { correlation, rSquared, count: pairsWithResiduals.length, slope, intercept, pairs: pairsWithResiduals };
+
+  return {
+    correlation,
+    rSquared,
+    count: pairsWithResiduals.length,
+    slope,
+    intercept,
+    pairs: pairsWithResiduals
+  };
 }
 
 function formatStatistic(value, digits = 2) {
@@ -507,51 +542,168 @@ export class StatisticsDialog {
 
   render(forecastPayload, spotPayload, { seriesKey = "", theme } = {}) {
     const data = forecastPayload?.data || {};
+
     const historyEntries = getNumericEntries(data.history);
     const forecastEntries = getNumericEntries(data.forecast);
-    const combinedEntries = mergeEntriesByTimestamp([...historyEntries, ...forecastEntries]);
-    const hasContinuousSeries = hasContinuousTimestamps(combinedEntries, 60);
+
+    const combinedEntries = mergeEntriesByTimestamp([
+      ...historyEntries,
+      ...forecastEntries
+    ]);
+
+    const hasContinuousSeries = hasContinuousTimestamps(
+      combinedEntries,
+      60
+    );
 
     const spotData = spotPayload?.data || {};
+
     const spotHistoryEntries = getNumericEntries(spotData.history);
     const spotForecastEntries = getNumericEntries(spotData.forecast);
-    const spotEntries = mergeEntriesByTimestamp([...spotHistoryEntries, ...spotForecastEntries]);
-    const spotByTimestamp = new Map(spotEntries.map(entry => [entry.key, entry.value]));
-    const matchedCount = combinedEntries.filter(entry => spotByTimestamp.has(entry.key)).length;
-    const hasFullCoverage = combinedEntries.length > 0 &&
-      matchedCount === combinedEntries.length && hasContinuousSeries;
 
-    const historyRegression = calculateRegressionStatistics(historyEntries, spotByTimestamp, hasFullCoverage);
-    const forecastRegression = calculateRegressionStatistics(forecastEntries, spotByTimestamp, hasFullCoverage);
-    const combinedRegression = calculateRegressionStatistics(combinedEntries, spotByTimestamp, hasFullCoverage);
-    const seriesName = this.getLangVer(forecastPayload?.metadata?.name) || seriesKey || "Current series";
-    const unit = this.getLangVer(forecastPayload?.metadata?.unit) || "";
+    const spotEntries = mergeEntriesByTimestamp([
+      ...spotHistoryEntries,
+      ...spotForecastEntries
+    ]);
+
+    const spotByTimestamp = new Map(
+      spotEntries.map(entry => [entry.key, entry.value])
+    );
+
+    // Count series timestamps for which a spot price is available.
+    const matchedCount = combinedEntries.filter(
+      entry => spotByTimestamp.has(entry.key)
+    ).length;
+
+    // Count series timestamps for which a spot price is missing.
+    const missingSpotCount = Math.max(
+      0,
+      combinedEntries.length - matchedCount
+    );
+
+    // Full coverage still requires complete spot-price coverage
+    // and continuous hourly series timestamps.
+    const hasFullCoverage =
+      combinedEntries.length > 0 &&
+      matchedCount === combinedEntries.length &&
+      hasContinuousSeries;
+
+    // When enabled, regression calculations may use the available
+    // matched observations instead of requiring complete spot coverage.
+    // The existing continuous-hourly-series requirement is retained.
+    const allowPartialRegression =
+      ALLOW_PARTIAL_SPOT_PRICE_COVERAGE &&
+      hasContinuousSeries;
+
+    // Calculate regression statistics using the available matched
+    // observations when partial coverage is enabled.
+    const historyRegression = calculateRegressionStatistics(
+      historyEntries,
+      spotByTimestamp,
+      hasFullCoverage,
+      allowPartialRegression
+    );
+
+    const forecastRegression = calculateRegressionStatistics(
+      forecastEntries,
+      spotByTimestamp,
+      hasFullCoverage,
+      allowPartialRegression
+    );
+
+    const combinedRegression = calculateRegressionStatistics(
+      combinedEntries,
+      spotByTimestamp,
+      hasFullCoverage,
+      allowPartialRegression
+    );
+
+    const seriesName =
+      this.getLangVer(forecastPayload?.metadata?.name) ||
+      seriesKey ||
+      "Current series";
+
+    const unit =
+      this.getLangVer(forecastPayload?.metadata?.unit) || "";
+
     const timestamps = combinedEntries.map(entry => entry.timestamp);
+
     const dateRange = timestamps.length
       ? `${timestamps[0].replace("T", " ")} – ${timestamps[timestamps.length - 1].replace("T", " ")}`
       : "Date range unavailable";
 
+    // Store the complete data model for table and graph rendering.
     this.model = {
-      historyEntries, forecastEntries, combinedEntries, spotEntries,
-      historyRegression, forecastRegression, combinedRegression,
-      hasFullCoverage, hasContinuousSeries, matchedCount,
-      seriesCount: combinedEntries.length, unit,
-      forecastKeys: new Set(forecastEntries.map(entry => entry.key))
+      historyEntries,
+      forecastEntries,
+      combinedEntries,
+      spotEntries,
+      historyRegression,
+      forecastRegression,
+      combinedRegression,
+      hasFullCoverage,
+      hasContinuousSeries,
+      matchedCount,
+      missingSpotCount,
+      seriesCount: combinedEntries.length,
+      unit,
+      forecastKeys: new Set(
+        forecastEntries.map(entry => entry.key)
+      )
     };
+
     this.subtitle.textContent = `${seriesName} · ${dateRange}`;
+
+    // Render the statistics table and all available graphs.
     this.renderTable();
     this.renderCurrentCharts();
 
+    // ---------------------------------------------------------
+    // Status and explanatory text
+    // ---------------------------------------------------------
+
     if (hasFullCoverage) {
-      this.setStatus(`Spot-price coverage complete: ${matchedCount}/${combinedEntries.length} timestamps matched with series data. Regression and residual metrics use these aligned observations.`);
+      this.setStatus(
+        `Spot-price coverage complete: ${matchedCount}/${combinedEntries.length} timestamps matched with series data. Regression and residual metrics use these aligned observations.`
+      );
+
       this.footnote.textContent =
         "OLS uses series value as the dependent variable and spot price (€/MWh) as the independent variable. MAE and RMSE use the regression residuals in the series unit. MAPE excludes actual values at or below the scale-relative near-zero threshold (1 × 10⁻⁶ of the maximum absolute actual value, with a minimum threshold of 1 × 10⁻⁹); excluded observations are shown in the metric column. Standard deviation is the sample standard deviation (n − 1). Results are descriptive and do not imply causation.";
+
+    } else if (
+      missingSpotCount > 0 &&
+      allowPartialRegression
+    ) {
+      const missingPriceMessage = missingSpotCount === 1
+        ? "1 day-ahead spot price is missing because it has not yet been published by ENTSO-E."
+        : `${missingSpotCount} day-ahead spot prices are missing because they have not yet been published by ENTSO-E.`;
+
+      this.setStatus(
+        `Calculations were completed using the available data. ${missingPriceMessage} Day-ahead spot prices are usually available after 14:30 (local time). Regression statistics and regression-based graphs use the available matched observations, provided there are enough valid observations to calculate them.`,
+        true
+      );
+
+      this.footnote.textContent =
+        "OLS and regression-based graphs use only timestamps for which both a series value and a spot price are available. MAE and RMSE use the resulting regression residuals in the series unit. MAPE excludes actual values at or below the scale-relative near-zero threshold (1 × 10⁻⁶ of the maximum absolute actual value, with a minimum threshold of 1 × 10⁻⁹); excluded observations are shown in the metric column. Standard deviation is the sample standard deviation (n − 1). Results are descriptive and do not imply causation.";
+
     } else {
       const coverageText = combinedEntries.length
         ? `${matchedCount} of ${combinedEntries.length} series timestamps matched`
         : "no valid series timestamps were found";
-      const continuityText = hasContinuousSeries ? "" : " The series contains missing or irregular time intervals.";
-      this.setStatus(`Regression was skipped. Spot-price coverage: ${coverageText}.${continuityText} Descriptive statistics remain available.`, true);
+
+      const missingPriceText = missingSpotCount > 0
+        ? ` ${missingSpotCount} day-ahead spot price${missingSpotCount === 1 ? " is" : "s are"} missing because ${missingSpotCount === 1 ? "it has" : "they have"} not yet been published by ENTSO-E. They are usually available after 14:30 (local time).`
+        : "";
+
+      const continuityText = hasContinuousSeries
+        ? ""
+        : " The series contains missing or irregular time intervals.";
+
+      this.setStatus(
+        `Regression was skipped. Spot-price coverage: ${coverageText}.${missingPriceText}${continuityText} Descriptive statistics remain available.`,
+        true
+      );
+
       this.footnote.textContent =
         "Complete spot-price coverage and continuous hourly series timestamps are required for regression. Error metrics are calculated from valid fitted regression observations only. Spot-price descriptive statistics use all valid spot observations returned for the displayed date range. Standard deviation is the sample standard deviation (n − 1).";
     }
