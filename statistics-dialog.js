@@ -1161,8 +1161,16 @@ export class StatisticsDialog {
       }
 
       this.relationshipDescription.textContent =
-        `${metric} by spot-price range, shown separately for history and forecast. ` +
-        "Spot prices are divided into up to eight equal-width bands.";
+        `${metric} by spot-price range, shown as separate lines for history and forecast. ` +
+        "Each point represents the error metric within a spot-price band.";
+
+      if (!pairs.length) {
+        this.setChartEmpty(
+          this.relationshipChart,
+          "No matched observations are available for the selected period."
+        );
+        return;
+      }
 
       // Determine spot-price range and number of bands.
       const minSpot = Math.min(...pairs.map(pair => pair.x));
@@ -1190,7 +1198,7 @@ export class StatisticsDialog {
         maxAbsActual * 1e-6
       );
 
-      // Create the price bands.
+      // Create the spot-price bands.
       const bins = Array.from(
         { length: binCount },
         (_, index) => {
@@ -1211,7 +1219,7 @@ export class StatisticsDialog {
         }
       );
 
-      // Assign each observation to its spot-price band.
+      // Assign observations to their spot-price bands.
       pairs.forEach(pair => {
         let index = binCount === 1
           ? 0
@@ -1231,7 +1239,60 @@ export class StatisticsDialog {
         }
       });
 
-      // Calculate the selected error metric for a group of observations.
+      // ---------------------------------------------------------
+      // Merge bins containing fewer than N observations.
+      // ---------------------------------------------------------
+      const MIN_BIN_SAMPLES = 3;
+
+      const getBinCount = bin =>
+        bin.history.length + bin.forecast.length;
+
+      while (bins.length > 1) {
+        const sparseIndex = bins.findIndex(
+          bin => getBinCount(bin) < MIN_BIN_SAMPLES
+        );
+
+        if (sparseIndex === -1) {
+          break;
+        }
+
+        let neighborIndex;
+
+        if (sparseIndex === 0) {
+          neighborIndex = 1;
+        } else if (sparseIndex === bins.length - 1) {
+          neighborIndex = sparseIndex - 1;
+        } else {
+          const leftCount = getBinCount(bins[sparseIndex - 1]);
+          const rightCount = getBinCount(bins[sparseIndex + 1]);
+
+          neighborIndex = leftCount <= rightCount
+            ? sparseIndex - 1
+            : sparseIndex + 1;
+        }
+
+        const leftIndex = Math.min(sparseIndex, neighborIndex);
+
+        const leftBin = bins[leftIndex];
+        const rightBin = bins[leftIndex + 1];
+
+        const mergedBin = {
+          start: leftBin.start,
+          end: rightBin.end,
+          history: [
+            ...leftBin.history,
+            ...rightBin.history
+          ],
+          forecast: [
+            ...leftBin.forecast,
+            ...rightBin.forecast
+          ]
+        };
+
+        bins.splice(leftIndex, 2, mergedBin);
+      }
+
+      // Calculate the selected error metric for a group.
       const calculateBinMetric = observations => {
         const valid = observations.filter(
           pair =>
@@ -1282,8 +1343,7 @@ export class StatisticsDialog {
           };
         }
 
-        // MAPE: exclude zero and near-zero actual values,
-        // using exactly the same threshold as metricResult().
+        // MAPE: exclude zero and near-zero actual values.
         const eligible = valid.filter(
           pair => Math.abs(pair.y) > nearZeroThreshold
         );
@@ -1313,12 +1373,7 @@ export class StatisticsDialog {
         };
       };
 
-      // Format spot-price ranges for the X-axis.
-      const binLabels = bins.map(bin =>
-        `${formatStatistic(bin.start, 1)} – ${formatStatistic(bin.end, 1)}`
-      );
-
-      // MAPE cannot be calculated when all actual values are
+      // MAPE cannot be calculated if every actual value is
       // zero or below the near-zero exclusion threshold.
       if (
         metric === "MAPE" &&
@@ -1333,38 +1388,58 @@ export class StatisticsDialog {
         return;
       }
 
+      // Position each metric at the midpoint of its spot-price band.
+      const binCenters = bins.map(bin =>
+        (bin.start + bin.end) / 2
+      );
+
       const metricHover = metric === "MAPE"
         ? "MAPE: %{y:.2f}%"
         : `${metric}: %{y:.3f} ${unit}`;
 
       const countHover = metric === "MAPE"
-        ? "<br>Observations: %{customdata[0]}" +
-          "<br>Included in MAPE: %{customdata[1]}" +
-          "<br>Excluded near-zero actuals: %{customdata[2]}"
-        : "<br>Observations: %{customdata[0]}";
+        ? "<br>Observations: %{customdata[2]}" +
+          "<br>Included in MAPE: %{customdata[3]}" +
+          "<br>Excluded near-zero actuals: %{customdata[4]}"
+        : "<br>Observations: %{customdata[2]}";
 
-      // Build a bar trace for either History or Forecast.
+      // Build a line trace for History or Forecast.
       const createMetricTrace = (group, name, color) => {
         const results = bins.map(bin =>
           calculateBinMetric(bin[group])
         );
 
         return {
-          type: "bar",
+          type: "scatter",
+          mode: "lines+markers",
           name,
-          x: binLabels,
+          x: binCenters,
           y: results.map(result => result.value),
-          customdata: results.map(result => [
+
+          customdata: results.map((result, index) => [
+            bins[index].start,
+            bins[index].end,
             result.count,
             result.includedCount,
             result.excludedCount
           ]),
-          marker: {
-            color
+
+          connectgaps: false,
+
+          line: {
+            color,
+            width: 2.5,
+            shape: "linear"
           },
-          opacity: 0.88,
+
+          marker: {
+            color,
+            size: 8,
+            symbol: "circle"
+          },
+
           hovertemplate:
-            `Spot-price range: %{x} €/MWh<br>` +
+            `Spot-price range: %{customdata[0]:.1f} – %{customdata[1]:.1f} €/MWh<br>` +
             `${metricHover}` +
             `${countHover}` +
             `<extra>${name}</extra>`
@@ -1398,29 +1473,23 @@ export class StatisticsDialog {
       const narrowChart = this.relationshipChart.clientWidth < 520;
 
       layout = this.commonLayout(theme, {
-        barmode: "group",
-        bargap: 0.18,
-
         margin: {
           l: 58,
           r: 18,
           t: 42,
-          b: narrowChart ? 135 : 80
+          b: narrowChart ? 90 : 65
         },
+
+        hovermode: "x",
 
         xaxis: {
           title: {
-            text: "Spot-price range (€/MWh)",
-            standoff: 25
+            text: "Spot price (€/MWh)",
+            standoff: 12
           },
-          categoryorder: "array",
-          categoryarray: binLabels,
           gridcolor: theme.grid,
-          automargin: true,
-          tickangle: "auto",
-          tickfont: {
-            size: narrowChart ? 9 : 10
-          }
+          zeroline: false,
+          automargin: true
         },
 
         yaxis: {
@@ -1428,7 +1497,8 @@ export class StatisticsDialog {
             text: metricAxisTitle
           },
           gridcolor: theme.grid,
-          rangemode: "tozero"
+          rangemode: "tozero",
+          zeroline: true
         },
 
         showlegend: true
@@ -1501,43 +1571,194 @@ export class StatisticsDialog {
         shapes: [zeroShape("y")]
       });
     } else if (this.errorView === "histogram") {
-      this.errorsDescription.textContent = `Distribution of regression residuals; ${pairs.length} matched observations.`;
-      // Pre-bin residuals into bars because the page intentionally uses the
-      // lightweight Plotly basic bundle (scatter/bar), not the histogram bundle.
-      const values = pairs.map(pair => pair.residual);
+      // Keep only finite residuals.
+      const values = pairs
+        .map(pair => pair.residual)
+        .filter(Number.isFinite);
+
+      if (!values.length) {
+        this.setChartEmpty(
+          this.errorsChart,
+          "No valid residuals are available."
+        );
+        return;
+      }
+
+      this.errorsDescription.textContent =
+        `Distribution of regression residuals; ${values.length} matched observations, ` +
+        "with a fitted normal distribution for comparison.";
+
+      // ---------------------------------------------------------
+      // 1. Calculate histogram bins.
+      // ---------------------------------------------------------
       let min = Math.min(...values);
       let max = Math.max(...values);
+
       if (min === max) {
         const padding = Math.max(Math.abs(min) * 0.05, 0.5);
         min -= padding;
         max += padding;
       }
-      const binCount = Math.min(35, Math.max(8, Math.ceil(Math.sqrt(values.length))));
+
+      const binCount = Math.min(
+        35,
+        Math.max(8, Math.ceil(Math.sqrt(values.length)))
+      );
+
       const binWidth = (max - min) / binCount;
-      const bins = Array.from({ length: binCount }, (_, index) => ({
-        start: min + index * binWidth,
-        end: index === binCount - 1 ? max : min + (index + 1) * binWidth,
-        count: 0
-      }));
+
+      const bins = Array.from(
+        { length: binCount },
+        (_, index) => ({
+          start: min + index * binWidth,
+          end: index === binCount - 1
+            ? max
+            : min + (index + 1) * binWidth,
+          count: 0
+        })
+      );
+
       values.forEach(value => {
-        const index = Math.min(binCount - 1, Math.max(0, Math.floor((value - min) / binWidth)));
+        const index = Math.min(
+          binCount - 1,
+          Math.max(
+            0,
+            Math.floor((value - min) / binWidth)
+          )
+        );
+
         bins[index].count += 1;
       });
+
+      // ---------------------------------------------------------
+      // 2. Create histogram trace.
+      // ---------------------------------------------------------
       traces = [{
-        type: "bar", name: "Residual observations",
+        type: "bar",
+        name: "Residual observations",
         x: bins.map(bin => (bin.start + bin.end) / 2),
         y: bins.map(bin => bin.count),
         width: bins.map(() => binWidth * 0.94),
-        customdata: bins.map(bin => [bin.start, bin.end]),
-        marker: { color: theme.history, line: { color: theme.fit, width: 0.5 } },
-        opacity: 0.86,
-        hovertemplate: "Residual range: %{customdata[0]:.3f} to %{customdata[1]:.3f}<br>Observations: %{y}<extra></extra>"
+        customdata: bins.map(bin => [
+          bin.start,
+          bin.end
+        ]),
+        marker: {
+          color: theme.history,
+          line: {
+            color: theme.fit,
+            width: 0.5
+          }
+        },
+        opacity: 0.72,
+        hovertemplate:
+          "Residual range: %{customdata[0]:.3f} to %{customdata[1]:.3f}" +
+          "<br>Observations: %{y}<extra></extra>"
       }];
+
+      // ---------------------------------------------------------
+      // 3. Calculate fitted normal distribution.
+      // ---------------------------------------------------------
+      const mean = values.reduce(
+        (sum, value) => sum + value,
+        0
+      ) / values.length;
+
+      const variance = values.length > 1
+        ? values.reduce(
+            (sum, value) => sum + (value - mean) ** 2,
+            0
+          ) / (values.length - 1)
+        : 0;
+
+      const standardDeviation = Math.sqrt(variance);
+
+      // Only draw the normal curve when a meaningful
+      // standard deviation can be calculated.
+      if (
+        values.length > 1 &&
+        Number.isFinite(standardDeviation) &&
+        standardDeviation > 0
+      ) {
+        const curvePointCount = 100;
+
+        const curveX = Array.from(
+          { length: curvePointCount },
+          (_, index) =>
+            min + (max - min) *
+            index / (curvePointCount - 1)
+        );
+
+        // Scale normal density to expected histogram counts.
+        const curveY = curveX.map(x => {
+          const z = (x - mean) / standardDeviation;
+
+          const density =
+            Math.exp(-0.5 * z * z) /
+            (standardDeviation * Math.sqrt(2 * Math.PI));
+
+          return density * values.length * binWidth;
+        });
+
+        traces.push({
+          type: "scatter",
+          mode: "lines",
+          name: "Fitted normal distribution",
+          x: curveX,
+          y: curveY,
+          line: {
+            color: theme.fit,
+            width: 2,
+            dash: "solid"
+          },
+          hovertemplate:
+            `Residual: %{x:.3f} ${unit}` +
+            "<br>Expected observations per bin: %{y:.2f}" +
+            "<extra></extra>"
+        });
+      }
+
+      // ---------------------------------------------------------
+      // 4. Configure chart layout.
+      // ---------------------------------------------------------
+
       layout = this.commonLayout(theme, {
-        xaxis: { title: { text: `Residual (${unit})` }, range: [min, max], gridcolor: theme.grid },
-        yaxis: { title: { text: "Observation count" }, gridcolor: theme.grid, rangemode: "tozero" },
-        shapes: [zeroShape("x")],
-        annotations: [{ xref: "paper", yref: "paper", x: 0.98, y: 0.98, xanchor: "right", yanchor: "top", showarrow: false, text: `n = ${pairs.length}`, font: { size: 11, color: theme.muted } }]
+        barmode: "overlay",
+        xaxis: {
+          title: {
+            text: `Residual (${unit})`
+          },
+          range: [min, max],
+          gridcolor: theme.grid
+        },
+        yaxis: {
+          title: {
+            text: "Observation count"
+          },
+          gridcolor: theme.grid,
+          rangemode: "tozero"
+        },
+        shapes: [
+          zeroShape("x")
+        ],
+        annotations: [{
+          xref: "paper",
+          yref: "paper",
+          x: 0.98,
+          y: 0.98,
+          xanchor: "right",
+          yanchor: "top",
+          showarrow: false,
+          text:
+            `n = ${values.length}` +
+            `<br>Mean = ${formatStatistic(mean, 3)}` +
+            `<br>SD = ${formatStatistic(standardDeviation, 3)}`,
+          align: "right",
+          font: {
+            size: 11,
+            color: theme.muted
+          }
+        }]
       });
     } else if (this.errorView === "residual-fitted") {
       this.errorsDescription.textContent = "Residuals plotted against fitted values to reveal curvature, changing variance and outliers.";
