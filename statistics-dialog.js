@@ -1121,7 +1121,7 @@ export class StatisticsDialog {
         hovertemplate:
           `Spot price: %{x:.2f} €/MWh<br>` +
           `Residual: %{y:.3f} ${unit}<br>` +
-          `Time: %{customdata[0]}<extra>${name}</extra>`
+          `Time: %{customdata[0]}<extra></extra>`
       });
 
       if (validHistoryPairs.length) {
@@ -1244,7 +1244,7 @@ export class StatisticsDialog {
             `Spot price: %{x:.2f} €/MWh<br>` +
             `Moving median residual: %{y:.3f} ${unit}<br>` +
             `Observations in window: %{customdata}` +
-            `<extra>${name} trend</extra>`
+            `<extra></extra>`
         });
       };
 
@@ -1637,7 +1637,7 @@ export class StatisticsDialog {
             `Spot-price range: %{customdata[0]:.1f} – %{customdata[1]:.1f} €/MWh<br>` +
             `${metricHover}` +
             `${countHover}` +
-            `<extra>${name}</extra>`
+            `<extra></extra>`
         };
       };
 
@@ -1706,7 +1706,7 @@ export class StatisticsDialog {
       x: pairs.map(pair => pair.x), y: pairs.map(pair => pair.y),
       customdata: pairs.map(pair => pair.timestamp),
       marker: { color, size: 7, opacity: 0.84 },
-      hovertemplate: `Spot price: %{x:.2f} €/MWh<br>Series: %{y:.3f} ${unit}<br>Time: %{customdata}<extra>${name}</extra>`
+      hovertemplate: `Spot price: %{x:.2f} €/MWh<br>Series: %{y:.3f} ${unit}<br>Time: %{customdata}<extra></extra>`
     };
   }
 
@@ -1716,7 +1716,7 @@ export class StatisticsDialog {
       x: pairs.map(pair => pair.fitted), y: pairs.map(pair => pair.y),
       customdata: pairs.map(pair => [pair.timestamp, pair.residual]),
       marker: { color, size: 7, opacity: 0.84 },
-      hovertemplate: `Predicted: %{x:.3f} ${unit}<br>Actual: %{y:.3f} ${unit}<br>Residual: %{customdata[1]:.3f} ${unit}<br>Time: %{customdata[0]}<extra>${name}</extra>`
+      hovertemplate: `Predicted: %{x:.3f} ${unit}<br>Actual: %{y:.3f} ${unit}<br>Residual: %{customdata[1]:.3f} ${unit}<br>Time: %{customdata[0]}<extra></extra>`
     };
   }
 
@@ -1964,7 +1964,7 @@ export class StatisticsDialog {
       if (forecastPairs.length) traces.push(this.residualFittedTrace(forecastPairs, "Forecast", theme.forecast, unit));
       layout = this.commonLayout(theme, {
         xaxis: {
-          title: { text: `Fitted value (${unit})` },
+          title: { text: `Predicted value (${unit})` },
           gridcolor: theme.grid,
           tickfont: { color: theme.muted }
         },
@@ -2021,7 +2021,7 @@ export class StatisticsDialog {
       customdata: pairs.map(pair => [pair.y, pair.fitted, pair.x]),
       connectgaps: false,
       line: { color, width: 1.7 }, marker: { color, size: 5, opacity: 0.9 },
-      hovertemplate: `%{customdata[0]:.3f} ${unit}<br>Predicted: %{customdata[1]:.3f} ${unit}<br>Residual: %{y:.3f} ${unit}<br>Spot price: %{customdata[2]:.2f} €/MWh<extra>${name}</extra>`
+      hovertemplate: `Actual:%{customdata[0]:.3f} ${unit}<br>Predicted: %{customdata[1]:.3f} ${unit}<br>Residual: %{y:.3f} ${unit}<br>Spot price: %{customdata[2]:.2f} €/MWh<extra></extra>`
     };
   }
 
@@ -2031,7 +2031,7 @@ export class StatisticsDialog {
       x: pairs.map(pair => pair.fitted), y: pairs.map(pair => pair.residual),
       customdata: pairs.map(pair => [pair.timestamp, pair.y]),
       marker: { color, size: 7, opacity: 0.84 },
-      hovertemplate: `Fitted: %{x:.3f} ${unit}<br>Residual: %{y:.3f} ${unit}<br>Actual: %{customdata[1]:.3f} ${unit}<br>Time: %{customdata[0]}<extra>${name}</extra>`
+      hovertemplate: `Actual: %{customdata[1]:.3f} ${unit}<br>Predicted: %{x:.3f} ${unit}<br>Residual: %{y:.3f} ${unit}<br>Time: %{customdata[0]}<extra></extra>`
     };
   }
 
