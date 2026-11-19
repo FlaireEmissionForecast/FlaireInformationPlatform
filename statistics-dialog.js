@@ -675,11 +675,11 @@ export class StatisticsDialog {
       allowPartialRegression
     ) {
       const missingPriceMessage = missingSpotCount === 1
-        ? "1 day-ahead spot price is missing because it has not yet been published by ENTSO-E."
-        : `${missingSpotCount} day-ahead spot prices are missing because they have not yet been published by ENTSO-E.`;
+        ? "One day-ahead spot price is missing because it has not yet been published by ENTSO-E."
+        : `Some (${missingSpotCount}/${forecastEntries.length}) day-ahead spot prices are missing because they have not yet been published by ENTSO-E.`;
 
       this.setStatus(
-        `Calculations were completed using the available data. ${missingPriceMessage} Day-ahead spot prices are usually available after 14:30 (local time). Regression statistics and regression-based graphs use the available matched observations, provided there are enough valid observations to calculate them.`,
+        `Calculations were completed using the currently available data. ${missingPriceMessage} Day-ahead spot prices can be queried after 14:30 EET/EEST from the FLIP API. Regression statistics and regression-based graphs use the available matched observations, provided there are enough valid observations to calculate them.`,
         true
       );
 
@@ -692,7 +692,7 @@ export class StatisticsDialog {
         : "no valid series timestamps were found";
 
       const missingPriceText = missingSpotCount > 0
-        ? ` ${missingSpotCount} day-ahead spot price${missingSpotCount === 1 ? " is" : "s are"} missing because ${missingSpotCount === 1 ? "it has" : "they have"} not yet been published by ENTSO-E. They are usually available after 14:30 (local time).`
+        ? ` Some (${missingSpotCount}/${forecastEntries.length}) day-ahead spot price${missingSpotCount === 1 ? " is" : "s are"} missing because ${missingSpotCount === 1 ? "it has" : "they have"} not yet been published by ENTSO-E. They are usually available after 14:30 (local time).`
         : "";
 
       const continuityText = hasContinuousSeries
@@ -884,7 +884,6 @@ export class StatisticsDialog {
     // ---------------------------------------------------------
     // 1. Series vs spot
     // ---------------------------------------------------------
-
     if (this.relationshipView === "scatter") {
       this.relationshipDescription.textContent =
         "Series values against matched spot prices, with the combined-series least-squares fit.";
@@ -973,7 +972,6 @@ export class StatisticsDialog {
     // ---------------------------------------------------------
     // 2. Rolling correlation
     // ---------------------------------------------------------
-
     } else if (this.relationshipView === "rolling") {
       this.relationshipDescription.textContent =
         `Rolling Pearson correlation using ${this.rollingWindow} consecutive matched observations.`;
@@ -1056,10 +1054,9 @@ export class StatisticsDialog {
     // ---------------------------------------------------------
     // 3. Actual vs predicted
     // ---------------------------------------------------------
-
     } else if (this.relationshipView === "actual-predicted") {
       this.relationshipDescription.textContent =
-        "Actual values versus regression predictions. Points above the diagonal are underestimates; points below it are overestimates.";
+        "Actual values versus regression predictions. Points above the diagonal are underestimates; points below it are overestimates. This is a linear transformation of the x-axis of series vs spot scatter plot.";
 
       if (historyPairs.length) {
         traces.push(
@@ -1083,20 +1080,32 @@ export class StatisticsDialog {
         );
       }
 
-      const minValue = Math.min(
-        ...pairs.flatMap(pair => [pair.y, pair.fitted])
-      );
+      const actualValues = pairs.map(pair => pair.y);
+      const predictedValues = pairs.map(pair => pair.fitted);
 
-      const maxValue = Math.max(
-        ...pairs.flatMap(pair => [pair.y, pair.fitted])
-      );
+      function getPaddedRange(values) {
+          const min = Math.min(...values);
+          const max = Math.max(...values);
+          const padding = (max - min) * 0.1 || 1;
+
+          return [min - padding, max + padding];
+      }
+
+      const xRange = getPaddedRange(predictedValues);
+      const yRange = getPaddedRange(actualValues);
+
+      // For the perfect agreement line, use the same range for both axes.
+      const perfectRange = [
+        Math.min(xRange[0], yRange[0]),
+        Math.max(xRange[1], yRange[1])
+      ];
 
       traces.push({
         type: "scatter",
         mode: "lines",
         name: "Perfect agreement",
-        x: [minValue, maxValue],
-        y: [minValue, maxValue],
+        x: perfectRange,
+        y: perfectRange,
         line: {
           color: theme.fit,
           width: 1.8,
@@ -1110,14 +1119,16 @@ export class StatisticsDialog {
         xaxis: {
           title: { text: `Predicted (${unit})` },
           gridcolor: theme.grid,
+          range: xRange,
+          autorange: false,
           zeroline: false
         },
         yaxis: {
           title: { text: `Actual (${unit})` },
           gridcolor: theme.grid,
+          range: yRange,
+          autorange: false,
           zeroline: false,
-          scaleanchor: "x",
-          scaleratio: 1
         },
         annotations: [{
           xref: "paper",
@@ -1139,7 +1150,6 @@ export class StatisticsDialog {
     // ---------------------------------------------------------
     // 4. Error metric by spot-price range
     // ---------------------------------------------------------
-
     } else {
       const availableMetrics = ["MAE", "MAPE", "RMSE"];
 
