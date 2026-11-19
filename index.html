@@ -805,6 +805,9 @@
     muted: isDark ? "#aab5c0" : "#66727c",
     grid: isDark ? "#444b54" : "#e5e7eb",
     fit: isDark ? "#f2f2f2" : "#263238",
+    hoverBg: isDark ? "#252b33" : "#ffffff",
+    hoverBorder: isDark ? "#59636e" : "#d5d9de",
+    hoverText: isDark ? "#edf2f7" : "#263238",
 
     history: "rgb(74, 144, 226)",
     forecast: "rgb(255, 140, 0)"
@@ -960,6 +963,17 @@
         traceorder: "normal"
       },
 
+      hoverlabel: {
+        bgcolor: theme.hoverBg,
+        bordercolor: theme.hoverBorder,
+        font: {
+            color: theme.hoverText,
+            size: 13,
+            family: "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+        },
+        align: "left"
+      },
+
       xaxis: {
         title: {
           text: "Time",
@@ -980,7 +994,7 @@
         spikemode: "across",
         showspikes: true,
         spikedash: currentChartType === "bar" ? "solid" : "dot",
-        spikecolor: currentChartType === "bar" ? "#fff" : undefined,
+        spikecolor: currentChartType === "bar" ? theme.fit : undefined,
         spikethickness: currentChartType === "bar" ? 24 : undefined
       },
       yaxis: {
@@ -1573,6 +1587,9 @@
       // "yaxis.title.font.color": theme.text,
       "yaxis2.tickfont.color": theme.muted,
       // "yaxis2.title.font.color": theme.text
+      "hoverlabel.bgcolor": theme.hoverBg,
+      "hoverlabel.bordercolor": theme.hoverBorder,
+      "hoverlabel.font.color": theme.hoverText,
     };
 
     if (currentChartType === "bar") {

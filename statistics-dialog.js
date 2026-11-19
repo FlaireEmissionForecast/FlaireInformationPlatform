@@ -825,6 +825,9 @@ export class StatisticsDialog {
       text: isDark ? "#edf2f7" : "#263238",
       muted: isDark ? "#aab5c0" : "#66727c",
       fit: isDark ? "#f2f2f2" : "#263238",
+      hoverBg: isDark ? "#252e38" : "#ffffff",
+      hoverBorder: isDark ? "#596675" : "#dce2e8",
+      hoverText: isDark ? "#edf2f7" : "#263238",
       history: "rgb(74, 144, 226)",
       forecast: "rgb(255, 140, 0)"
     };
@@ -838,6 +841,13 @@ export class StatisticsDialog {
       autosize: true,
       margin: { l: 58, r: 18, t: 42, b: 58 },
       font: { size: 11, color: theme.text },
+
+      hoverlabel: {
+        bgcolor: theme.hoverBg,
+        bordercolor: theme.hoverBorder,
+        font: { color: theme.hoverText, size: 12 },
+        align: "left"
+      },
       legend: { orientation: "h", x: 0.5, xanchor: "center", y: 1.02, yanchor: "bottom" },
       hovermode: "closest",
       ...extra
