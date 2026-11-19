@@ -186,7 +186,7 @@ const STATISTICS_MARKUP = `
             <nav id="statistics-relationship-selector" class="statistics-view-selector" aria-label="Relationship graph views">
               <button type="button" class="statistics-view-button" data-view="scatter" aria-pressed="true">Series vs spot</button>
               <button type="button" class="statistics-view-button" data-view="regression-stats">Error vs spot</button>
-              <button type="button" class="statistics-view-button" data-view="actual-predicted">Actual vs pred.</button>
+              <button type="button" class="statistics-view-button" data-view="residual-spot">Residuals vs spot</button>
               <button type="button" class="statistics-view-button" data-view="rolling">Rolling correlation</button>
             </nav>
               <label id="statistics-window-control"
@@ -460,7 +460,7 @@ export class StatisticsDialog {
       if (this.relationshipView === "rolling") {
         const parsed = Number(this.windowSelect.value);
 
-        if ([6, 12, 24].includes(parsed)) {
+        if ([6, 12, 24, 48].includes(parsed)) {
           this.rollingWindow = parsed;
         }
       } else if (this.relationshipView === "regression-stats") {
@@ -783,7 +783,7 @@ export class StatisticsDialog {
       label.textContent = "Window";
 
       setOptions(
-        ["6", "12", "24"],
+        ["6", "12", "24", "48"],
         this.rollingWindow
       );
     } else if (isSpotError) {
@@ -846,6 +846,10 @@ export class StatisticsDialog {
     const token = ++this.relationshipRenderToken;
     const model = this.model;
     const theme = this.getChartTheme();
+
+    const zeroShape = (axis = "y") => axis === "x"
+      ? { type: "line", xref: "x", yref: "paper", x0: 0, x1: 0, y0: 0, y1: 1, line: { color: theme.fit, width: 1.5, dash: "dash" } }
+      : { type: "line", xref: "paper", yref: "y", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: theme.fit, width: 1.5, dash: "dash" } };
 
     if (!window.Plotly) {
       this.relationshipDescription.textContent = "";
@@ -1052,84 +1056,264 @@ export class StatisticsDialog {
       });
 
     // ---------------------------------------------------------
-    // 3. Actual vs predicted
+    // Residuals vs. spot price
     // ---------------------------------------------------------
-    } else if (this.relationshipView === "actual-predicted") {
+    } else if (this.relationshipView === "residual-spot") {
+
+      const validPairs = pairs.filter(
+        pair =>
+          Number.isFinite(pair.x) &&
+          Number.isFinite(pair.residual)
+      );
+
+      if (!validPairs.length) {
+        this.setChartEmpty(
+          this.relationshipChart,
+          "No valid regression residuals are available."
+        );
+        return;
+      }
+
       this.relationshipDescription.textContent =
-        "Actual values versus regression predictions. Points above the diagonal are underestimates; points below it are overestimates. This is a linear transformation of the x-axis of series vs spot scatter plot.";
+        `Regression residuals against spot price; ${validPairs.length} matched observations. ` +
+        "Positive residuals indicate underestimation; negative residuals indicate overestimation.";
 
-      if (historyPairs.length) {
-        traces.push(
-          this.actualPredictedTrace(
-            historyPairs,
-            "History",
-            theme.history,
-            unit
-          )
-        );
-      }
+      const validHistoryPairs = historyPairs.filter(
+        pair =>
+          Number.isFinite(pair.x) &&
+          Number.isFinite(pair.residual)
+      );
 
-      if (forecastPairs.length) {
-        traces.push(
-          this.actualPredictedTrace(
-            forecastPairs,
-            "Forecast",
-            theme.forecast,
-            unit
-          )
-        );
-      }
+      const validForecastPairs = forecastPairs.filter(
+        pair =>
+          Number.isFinite(pair.x) &&
+          Number.isFinite(pair.residual)
+      );
 
-      const actualValues = pairs.map(pair => pair.y);
-      const predictedValues = pairs.map(pair => pair.fitted);
-
-      function getPaddedRange(values) {
-          const min = Math.min(...values);
-          const max = Math.max(...values);
-          const padding = (max - min) * 0.1 || 1;
-
-          return [min - padding, max + padding];
-      }
-
-      const xRange = getPaddedRange(predictedValues);
-      const yRange = getPaddedRange(actualValues);
-
-      // For the perfect agreement line, use the same range for both axes.
-      const perfectRange = [
-        Math.min(xRange[0], yRange[0]),
-        Math.max(xRange[1], yRange[1])
-      ];
-
-      traces.push({
+      // ---------------------------------------------------------
+      // 1. Individual observation traces.
+      // ---------------------------------------------------------
+      const createResidualTrace = (group, name, color) => ({
         type: "scatter",
-        mode: "lines",
-        name: "Perfect agreement",
-        x: perfectRange,
-        y: perfectRange,
-        line: {
-          color: theme.fit,
-          width: 1.8,
-          dash: "dash"
+        mode: "markers",
+        name,
+        x: group.map(pair => pair.x),
+        y: group.map(pair => pair.residual),
+
+        customdata: group.map(pair => [
+          pair.timestamp,
+          pair.y,
+          pair.fitted
+        ]),
+
+        marker: {
+          color,
+          size: 7,
+          opacity: 0.33
         },
+
         hovertemplate:
-          "Perfect agreement: %{x:.3f}<extra></extra>"
+          `Spot price: %{x:.2f} €/MWh<br>` +
+          `Residual: %{y:.3f} ${unit}<br>` +
+          `Time: %{customdata[0]}<extra>${name}</extra>`
       });
 
+      if (validHistoryPairs.length) {
+        traces.push(
+          createResidualTrace(
+            validHistoryPairs,
+            "History",
+            theme.history
+          )
+        );
+      }
+
+      if (validForecastPairs.length) {
+        traces.push(
+          createResidualTrace(
+            validForecastPairs,
+            "Forecast",
+            theme.forecast
+          )
+        );
+      }
+
+      // ---------------------------------------------------------
+      // 2. Moving-median smoothing.
+      //
+      // Sort observations by spot price and calculate a
+      // local median over neighbouring observations.
+      // ---------------------------------------------------------
+      const calculateMovingMedian = observations => {
+        const sorted = [...observations].sort(
+          (a, b) => a.x - b.x
+        );
+
+        if (sorted.length < 5) {
+          return [];
+        }
+
+        // Use approximately 20% of observations,
+        // with a minimum of 5 and maximum of 31.
+        let windowSize = Math.min(
+          31,
+          Math.max(5, Math.ceil(sorted.length * 0.20))
+        );
+
+        // Prefer an odd-sized window.
+        if (windowSize % 2 === 0) {
+          windowSize += 1;
+        }
+
+        windowSize = Math.min(
+          windowSize,
+          sorted.length
+        );
+
+        const halfWindow = Math.floor(windowSize / 2);
+
+        return sorted.map((pair, index) => {
+          const start = Math.max(
+            0,
+            index - halfWindow
+          );
+
+          const end = Math.min(
+            sorted.length,
+            index + halfWindow + 1
+          );
+
+          const residuals = sorted
+            .slice(start, end)
+            .map(item => item.residual)
+            .sort((a, b) => a - b);
+
+          const middle = Math.floor(
+            residuals.length / 2
+          );
+
+          const median = residuals.length % 2 === 0
+            ? (
+                residuals[middle - 1] +
+                residuals[middle]
+              ) / 2
+            : residuals[middle];
+
+          return {
+            x: pair.x,
+            residual: median,
+            count: residuals.length
+          };
+        });
+      };
+
+      // ---------------------------------------------------------
+      // 3. Add separate moving-median lines.
+      // ---------------------------------------------------------
+      const createTrendTrace = (group, name, color) => {
+        const trend = calculateMovingMedian(group);
+
+        if (!trend.length) {
+          return;
+        }
+
+        traces.push({
+          type: "scatter",
+          mode: "lines",
+          name: `${name} moving median`,
+          x: trend.map(point => point.x),
+          y: trend.map(point => point.residual),
+
+          customdata: trend.map(point => point.count),
+
+          line: {
+            color,
+            width: 2.8,
+            shape: "linear"
+          },
+
+          showlegend: false,
+
+          hovertemplate:
+            `Spot price: %{x:.2f} €/MWh<br>` +
+            `Moving median residual: %{y:.3f} ${unit}<br>` +
+            `Observations in window: %{customdata}` +
+            `<extra>${name} trend</extra>`
+        });
+      };
+
+      createTrendTrace(
+        validHistoryPairs,
+        "History",
+        theme.history
+      );
+
+      createTrendTrace(
+        validForecastPairs,
+        "Forecast",
+        theme.forecast
+      );
+
+      // ---------------------------------------------------------
+      // 4. Axis ranges.
+      // ---------------------------------------------------------
+      const minSpot = Math.min(
+        ...validPairs.map(pair => pair.x)
+      );
+
+      const maxSpot = Math.max(
+        ...validPairs.map(pair => pair.x)
+      );
+
+      const spotPadding =
+        (maxSpot - minSpot) * 0.03 ||
+        Math.max(Math.abs(minSpot) * 0.03, 0.5);
+
+      const maxAbsResidual = Math.max(
+        ...validPairs.map(pair => Math.abs(pair.residual))
+      );
+
+      const residualPadding =
+        maxAbsResidual * 0.08 || 1;
+
+      const xRange = [
+        minSpot - spotPadding,
+        maxSpot + spotPadding
+      ];
+
+      // Keep zero centred to make positive and negative
+      // residuals visually comparable.
+      const yRange = [
+        -maxAbsResidual - residualPadding,
+        maxAbsResidual + residualPadding
+      ];
+
+      // ---------------------------------------------------------
+      // 5. Chart layout.
+      // ---------------------------------------------------------
       layout = this.commonLayout(theme, {
+        hovermode: "closest",
+
         xaxis: {
-          title: { text: `Predicted (${unit})` },
-          gridcolor: theme.grid,
+          title: {
+            text: "Spot price (€/MWh)"
+          },
           range: xRange,
-          autorange: false,
+          gridcolor: theme.grid,
           zeroline: false
         },
+
         yaxis: {
-          title: { text: `Actual (${unit})` },
-          gridcolor: theme.grid,
+          title: {
+            text: `Residual (${unit})`
+          },
           range: yRange,
-          autorange: false,
-          zeroline: false,
+          gridcolor: theme.grid,
+          zeroline: false
         },
+
+        shapes: [zeroShape("y")],
+
         annotations: [{
           xref: "paper",
           yref: "paper",
@@ -1138,7 +1322,10 @@ export class StatisticsDialog {
           xanchor: "left",
           yanchor: "top",
           showarrow: false,
-          text: "Above line: underestimation<br>Below line: overestimation",
+          text:
+            "Above zero: underestimation<br>" +
+            "Below zero: overestimation<br>" +
+            "Lines: moving median",
           align: "left",
           font: {
             size: 10,
@@ -1470,22 +1657,11 @@ export class StatisticsDialog {
         ? "MAPE (%)"
         : `${metric} (${unit})`;
 
-      const narrowChart = this.relationshipChart.clientWidth < 520;
-
       layout = this.commonLayout(theme, {
-        margin: {
-          l: 58,
-          r: 18,
-          t: 42,
-          b: narrowChart ? 90 : 65
-        },
-
         hovermode: "x",
-
         xaxis: {
           title: {
-            text: "Spot price (€/MWh)",
-            standoff: 12
+            text: "Spot price (€/MWh)"
           },
           gridcolor: theme.grid,
           zeroline: false,
