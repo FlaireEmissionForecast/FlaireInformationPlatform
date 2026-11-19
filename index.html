@@ -794,6 +794,23 @@
   // Default to light theme
   let currentTheme = 'light';
 
+  function getMainChartTheme() {
+  const isDark = currentTheme === "dark";
+
+  return {
+    template: isDark ? "plotly_dark" : "plotly_white",
+
+    surface: isDark ? "#1c2229" : "#ffffff",
+    text: isDark ? "#edf2f7" : "#263238",
+    muted: isDark ? "#aab5c0" : "#66727c",
+    grid: isDark ? "#444b54" : "#e5e7eb",
+    fit: isDark ? "#f2f2f2" : "#263238",
+
+    history: "rgb(74, 144, 226)",
+    forecast: "rgb(255, 140, 0)"
+    };
+  }
+
   function setChartLoading(loading, message) {
       if (!chartLoading || !chartLoadingMessage) {
           console.warn("Chart loading elements not found.");
@@ -898,7 +915,7 @@
   }
 
   function buildLayout(forecastStart, payloadUnit, showSpotAxis = false) {
-    const lightThemeGridColor = '#cccccc';
+    const theme = getMainChartTheme();
 
     const shapes = [];
     if (forecastStart) {
@@ -912,44 +929,52 @@
         line: {
           dash: 'dash',
           width: 1,
-          color: '#888'
+          color: theme.fit
         }
       });
     }
 
     return {
-      template: currentTheme === 'dark' ? 'plotly_dark' : 'plotly_white',
+      template: theme.template,
       paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: 'rgba(0,0,0,0)',
+
+      font: {
+        size: 12,
+        color: theme.text
+      },
 
       hovermode: "x unified",
       barmode: "group",
 
       legend: {
-        orientation: 'h',
+        orientation: "h",
         x: 0.5,
         y: 1.02,
-        xanchor: 'center',
-        yanchor: 'bottom',
-        bgcolor:
-          currentTheme === "dark"
-            ? "rgba(0,0,0,0.4)"
-            : "rgba(255,255,255,0.7)",
-        bordercolor:
-          currentTheme === "dark"
-            ? "rgba(255,255,255,0.2)"
-            : "rgba(0,0,0,0.2)",
-        borderwidth: 1,
-        font: { size: 12 },
-        traceorder: 'normal'
+        xanchor: "center",
+        yanchor: "bottom",
+        font: {
+          size: 12,
+          color: theme.text
+        },
+        traceorder: "normal"
       },
 
       xaxis: {
-        title: { text : "Time" },
+        title: {
+          text: "Time",
+          font: { color: theme.text }
+        },
+        tickfont: { color: theme.muted },
         tickangle: 0,
         tickformat: "%H:%M<br>%d.%m.%y",
-        rangeslider: { visible: true },
-        gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined,
+
+        rangeslider: {
+          visible: true
+        },
+
+        gridcolor: theme.grid,
+        zerolinecolor: theme.grid,
 
         // Hover indicators for both line and bar charts
         spikemode: "across",
@@ -962,11 +987,20 @@
         autorange: !currentYAxisRange,
         range: currentYAxisRange || undefined,
         automargin: true,
-        title: { text: payloadUnit || "Value" },
-        gridcolor: currentTheme === 'light' ? lightThemeGridColor : undefined
+
+        title: {
+          text: payloadUnit || "Value"
+        },
+
+        tickfont: { color: theme.muted },
+        gridcolor: theme.grid,
+        zerolinecolor: theme.grid
       },
       yaxis2: {
-        title: { text: showSpotAxis ? "Spot price (€/MWh)" : "" },
+        title: {
+          text: showSpotAxis ? "Spot price (€/MWh)" : ""
+        },
+        tickfont: { color: theme.muted },
         overlaying: "y",
         side: "right",
         anchor: "x",
@@ -1512,17 +1546,45 @@
   }
 
   function toggleTheme() {
-    currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-    document.body.classList.toggle('dark-theme');
+    currentTheme = currentTheme === "light" ? "dark" : "light";
 
-    const newTemplate = currentTheme === 'dark' ? 'plotly_dark' : 'plotly_white';
-    const newGridColor = currentTheme === 'light' ? '#cccccc' : undefined;
+    document.body.classList.toggle("dark-theme");
 
-    Plotly.relayout(chartDiv, {
-      template: newTemplate,
-      'xaxis.gridcolor': newGridColor,
-      'yaxis.gridcolor': newGridColor
-    });
+    const theme = getMainChartTheme();
+
+    const updates = {
+      template: theme.template,
+
+      font: {
+        size: 12,
+        color: theme.text
+      },
+
+      "legend.font.color": theme.text,
+      "xaxis.gridcolor": theme.grid,
+      "xaxis.zerolinecolor": theme.grid,
+      "xaxis.tickfont.color": theme.muted,
+      // "xaxis.title.font.color": theme.text,
+      // "xaxis.rangeslider.bgcolor": theme.surface,
+      "xaxis.rangeslider.bordercolor": theme.grid,
+      "yaxis.gridcolor": theme.grid,
+      "yaxis.zerolinecolor": theme.grid,
+      "yaxis.tickfont.color": theme.muted,
+      // "yaxis.title.font.color": theme.text,
+      "yaxis2.tickfont.color": theme.muted,
+      // "yaxis2.title.font.color": theme.text
+    };
+
+    if (currentChartType === "bar") {
+      updates["xaxis.spikecolor"] = theme.fit;
+    }
+
+    if (chartDiv.layout?.shapes?.length) {
+      updates["shapes[0].line.color"] = theme.fit;
+    }
+
+    Plotly.relayout(chartDiv, updates);
+
     statisticsDialog.refreshTheme();
   }
 

@@ -150,7 +150,7 @@ const STATISTICS_MARKUP = `
            aria-labelledby="statistics-title" aria-describedby="statistics-subtitle" tabindex="-1">
     <div class="statistics-header">
       <div>
-        <h2 id="statistics-title">Current series statistics</h2>
+        <h2 id="statistics-title">statistics</h2>
         <p id="statistics-subtitle" class="statistics-subtitle"></p>
       </div>
       <button type="button" id="statistics-close" class="statistics-close" aria-label="Close statistics">&times;</button>
@@ -425,6 +425,7 @@ export class StatisticsDialog {
     this.modal = byId("statistics-modal");
     this.dialog = this.modal.querySelector(".statistics-dialog");
     this.closeButton = byId("statistics-close");
+    this.title = byId("statistics-title");
     this.subtitle = byId("statistics-subtitle");
     this.status = byId("statistics-status");
     this.tableBody = byId("statistics-table-body");
@@ -652,7 +653,8 @@ export class StatisticsDialog {
       )
     };
 
-    this.subtitle.textContent = `${seriesName} · ${dateRange}`;
+    this.title.textContent = `${seriesName} statistics`;
+    this.subtitle.textContent = `Date range: ${dateRange}`;
 
     // Render the statistics table and all available graphs.
     this.renderTable();
@@ -664,7 +666,7 @@ export class StatisticsDialog {
 
     if (hasFullCoverage) {
       this.setStatus(
-        `Spot-price coverage complete: ${matchedCount}/${combinedEntries.length} timestamps matched with series data. Regression and residual metrics use these aligned observations.`
+        `Spot-price coverage complete: ${matchedCount}/${combinedEntries.length} timestamps matched with ${seriesName.toLowerCase()} data. Regression and residual metrics use these aligned observations.`
       );
 
       this.footnote.textContent =
@@ -944,11 +946,13 @@ export class StatisticsDialog {
       layout = this.commonLayout(theme, {
         xaxis: {
           title: { text: "Spot price (€/MWh)" },
-          gridcolor: theme.grid
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted }
         },
         yaxis: {
           title: { text: unit },
-          gridcolor: theme.grid
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted }
         },
         annotations: [{
           xref: "paper",
@@ -1030,6 +1034,7 @@ export class StatisticsDialog {
           type: "date",
           title: { text: "Time" },
           tickformat: "%d.%m.%y",
+          tickfont: { color: theme.muted },
           gridcolor: theme.grid
         },
         yaxis: {
@@ -1037,6 +1042,7 @@ export class StatisticsDialog {
           range: [-1, 1],
           tickmode: "linear",
           dtick: 0.5,
+          tickfont: { color: theme.muted },
           gridcolor: theme.grid
         },
         shapes: [{
@@ -1300,6 +1306,7 @@ export class StatisticsDialog {
           },
           range: xRange,
           gridcolor: theme.grid,
+          tickfont: { color: theme.muted },
           zeroline: false
         },
 
@@ -1309,6 +1316,7 @@ export class StatisticsDialog {
           },
           range: yRange,
           gridcolor: theme.grid,
+          tickfont: { color: theme.muted },
           zeroline: false
         },
 
@@ -1664,6 +1672,7 @@ export class StatisticsDialog {
             text: "Spot price (€/MWh)"
           },
           gridcolor: theme.grid,
+          tickfont: { color: theme.muted },
           zeroline: false,
           automargin: true
         },
@@ -1673,6 +1682,7 @@ export class StatisticsDialog {
             text: metricAxisTitle
           },
           gridcolor: theme.grid,
+          tickfont: { color: theme.muted },
           rangemode: "tozero",
           zeroline: true
         },
@@ -1742,8 +1752,18 @@ export class StatisticsDialog {
       if (forecastPairs.length) traces.push(this.residualTimeTrace(forecastPairs, "Forecast", theme.forecast, unit));
       layout = this.commonLayout(theme, {
         hovermode: "x unified",
-        xaxis: { type: "date", title: { text: "Time" }, tickformat: "%H:%M<br>%d.%m.%y", gridcolor: theme.grid },
-        yaxis: { title: { text: `Residual (${unit})` }, gridcolor: theme.grid },
+        xaxis: { 
+          type: "date",
+          title: { text: "Time" },
+          tickformat: "%H:%M<br>%d.%m.%y",
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted },
+        },
+        yaxis: { 
+          title: { text: `Residual (${unit})` },
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted },
+        },
         shapes: [zeroShape("y")]
       });
     } else if (this.errorView === "histogram") {
@@ -1904,6 +1924,7 @@ export class StatisticsDialog {
           title: {
             text: `Residual (${unit})`
           },
+          tickfont: { color: theme.muted },
           range: [min, max],
           gridcolor: theme.grid
         },
@@ -1912,6 +1933,7 @@ export class StatisticsDialog {
             text: "Observation count"
           },
           gridcolor: theme.grid,
+          tickfont: { color: theme.muted },
           rangemode: "tozero"
         },
         shapes: [
@@ -1941,8 +1963,16 @@ export class StatisticsDialog {
       if (historyPairs.length) traces.push(this.residualFittedTrace(historyPairs, "History", theme.history, unit));
       if (forecastPairs.length) traces.push(this.residualFittedTrace(forecastPairs, "Forecast", theme.forecast, unit));
       layout = this.commonLayout(theme, {
-        xaxis: { title: { text: `Fitted value (${unit})` }, gridcolor: theme.grid },
-        yaxis: { title: { text: `Residual (${unit})` }, gridcolor: theme.grid },
+        xaxis: {
+          title: { text: `Fitted value (${unit})` },
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted }
+        },
+        yaxis: { 
+          title: { text: `Residual (${unit})` }, 
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted }
+        },
         shapes: [zeroShape("y")]
       });
     } else {
@@ -1964,8 +1994,18 @@ export class StatisticsDialog {
         hovertemplate: "Hour: %{x}:00<br>Average residual: %{y:.3f} " + unit + "<br>Observations: %{customdata}<extra></extra>"
       }];
       layout = this.commonLayout(theme, {
-        xaxis: { title: { text: "Hour of day" }, categoryorder: "array", categoryarray: labels, gridcolor: theme.grid },
-        yaxis: { title: { text: `Avg. residual (${unit})` }, gridcolor: theme.grid },
+        xaxis: { 
+          title: { text: "Hour of day" },
+          categoryorder: "array",
+          categoryarray: labels,
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted }
+      },
+        yaxis: {
+          title: { text: `Avg. residual (${unit})` },
+          gridcolor: theme.grid,
+          tickfont: { color: theme.muted }
+        },
         shapes: [zeroShape("y")],
         showlegend: false
       });
