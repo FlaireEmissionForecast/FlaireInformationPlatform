@@ -441,6 +441,23 @@ export class StatisticsDialog {
     this.windowSelect = byId("statistics-window-select");
   }
 
+  clearChartHover(container) {
+    if (!window.Plotly?.Fx?.unhover || !container?.data) {
+      return;
+    }
+
+    try {
+      window.Plotly.Fx.unhover(container);
+    } catch (error) {
+      console.warn("Could not clear chart hover:", error);
+    }
+  }
+
+  clearAllChartHovers() {
+    this.clearChartHover(this.relationshipChart);
+    this.clearChartHover(this.errorsChart);
+  }
+
   bindEvents() {
     this.closeButton.addEventListener("click", () => this.close());
 
@@ -456,6 +473,36 @@ export class StatisticsDialog {
       this.metric = this.metricSelect.value;
       this.renderTable();
     });
+
+    // Clear hoverboxes when a touch occurs outside their respective charts.
+    const clearHoverOnOutsideTouch = event => {
+      if (this.modal.hidden) return;
+
+      const target = event.target;
+
+      if (!this.relationshipChart.contains(target)) {
+        this.clearChartHover(this.relationshipChart);
+      }
+
+      if (!this.errorsChart.contains(target)) {
+        this.clearChartHover(this.errorsChart);
+      }
+    };
+
+    // Use Pointer Events where supported, with a touch fallback.
+    if (window.PointerEvent) {
+      document.addEventListener("pointerdown", event => {
+        if (event.pointerType !== "touch") return;
+
+        clearHoverOnOutsideTouch(event);
+      }, true);
+    } else {
+      document.addEventListener(
+        "touchstart",
+        clearHoverOnOutsideTouch,
+        { capture: true, passive: true }
+      );
+    }
 
     this.windowSelect.addEventListener("change", () => {
       if (this.relationshipView === "rolling") {
@@ -542,6 +589,8 @@ export class StatisticsDialog {
   }
 
   render(forecastPayload, spotPayload, { seriesKey = "", theme } = {}) {
+    // Clear hoverboxes when the selected data set changes.
+    this.clearAllChartHovers();
     const data = forecastPayload?.data || {};
 
     const historyEntries = getNumericEntries(data.history);
@@ -855,6 +904,7 @@ export class StatisticsDialog {
   }
 
   renderRelationshipChart() {
+    this.clearChartHover(this.relationshipChart);
     const token = ++this.relationshipRenderToken;
     const model = this.model;
     const theme = this.getChartTheme();
@@ -1022,10 +1072,11 @@ export class StatisticsDialog {
 
       traces = [{
         type: "scatter",
-        mode: "lines+markers",
+        mode: "lines",
         name: `Rolling Pearson r (${this.rollingWindow})`,
         x: rolling.map(item => item.timestamp),
         y: rolling.map(item => item.value),
+        showlegend: true,
         connectgaps: false,
         line: {
           color: theme.history,
@@ -1035,15 +1086,15 @@ export class StatisticsDialog {
           color: theme.history,
           size: 4
         },
-        hovertemplate:
-          "Time: %{x}<br>Pearson r: %{y:.3f}<extra></extra>"
+        hovertemplate: "Pearson r: %{y:.3f}<extra></extra>"
       }];
 
       layout = this.commonLayout(theme, {
+        hovermode: "x unified",
         xaxis: {
           type: "date",
           title: { text: "Time" },
-          tickformat: "%d.%m.%y",
+          tickformat: "%H:%M<br>%d.%m.%y",
           tickfont: { color: theme.muted },
           gridcolor: theme.grid
         },
@@ -1731,6 +1782,7 @@ export class StatisticsDialog {
   }
 
   renderErrorsChart() {
+    this.clearChartHover(this.renderErrorsChart);
     const token = ++this.errorRenderToken;
     const model = this.model;
     const theme = this.getChartTheme();
@@ -2026,12 +2078,12 @@ export class StatisticsDialog {
 
   residualTimeTrace(pairs, name, color, unit) {
     return {
-      type: "scatter", mode: "lines+markers", name,
+      type: "scatter", mode: "lines", name,
       x: pairs.map(pair => pair.timestamp), y: pairs.map(pair => pair.residual),
       customdata: pairs.map(pair => [pair.y, pair.fitted, pair.x]),
       connectgaps: false,
       line: { color, width: 1.7 }, marker: { color, size: 5, opacity: 0.9 },
-      hovertemplate: `Actual:%{customdata[0]:.3f} ${unit}<br>Predicted: %{customdata[1]:.3f} ${unit}<br>Residual: %{y:.3f} ${unit}<br>Spot price: %{customdata[2]:.2f} €/MWh<extra></extra>`
+      hovertemplate: `Residual: %{y:.3f} ${unit}<br>Spot price: %{customdata[2]:.2f} €/MWh<extra></extra>`
     };
   }
 
