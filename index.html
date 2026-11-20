@@ -1253,7 +1253,7 @@
     return traces;
   }
 
-  const SPOT_PRICE_CACHE_TTL = 10 * 60 * 1000; // 15 minutes in milliseconds
+  const SPOT_PRICE_CACHE_TTL = 10 * 60 * 1000; // 10 minutes in milliseconds
   const spotPriceLoading = document.getElementById("spotprice-loading");
 
   function setSpotPriceLoading(loading) {
@@ -1350,6 +1350,12 @@
 
     historySelect.innerHTML = "";
 
+    // No history
+    const opt = document.createElement("option");
+    opt.value = `0D`;
+    opt.textContent = `None`;
+    historySelect.appendChild(opt);
+
     // Up to 7 days
     const dayLimit = Math.min(7, totalDays);
     for (let d = 1; d <= dayLimit; d++) {
@@ -1425,7 +1431,6 @@
     const response = await fetch(url, {
       headers: {
         "bypass-tunnel-reminder": "true"
-        // "ngrok-skip-browser-warning": "1"
       }
     });
     if (!response.ok) {
@@ -1578,15 +1583,11 @@
       "xaxis.gridcolor": theme.grid,
       "xaxis.zerolinecolor": theme.grid,
       "xaxis.tickfont.color": theme.muted,
-      // "xaxis.title.font.color": theme.text,
-      // "xaxis.rangeslider.bgcolor": theme.surface,
       "xaxis.rangeslider.bordercolor": theme.grid,
       "yaxis.gridcolor": theme.grid,
       "yaxis.zerolinecolor": theme.grid,
       "yaxis.tickfont.color": theme.muted,
-      // "yaxis.title.font.color": theme.text,
       "yaxis2.tickfont.color": theme.muted,
-      // "yaxis2.title.font.color": theme.text
       "hoverlabel.bgcolor": theme.hoverBg,
       "hoverlabel.bordercolor": theme.hoverBorder,
       "hoverlabel.font.color": theme.hoverText,
@@ -1706,6 +1707,7 @@
   let lastTapTime = 0;
   let lastTapX = 0;
   let lastTapY = 0;
+  let lastTapIdentifier = null;
 
   let touchStartX = 0;
   let touchStartY = 0;
@@ -1880,38 +1882,47 @@
 
   // Touch end: detect completed taps and double taps
   chartDiv.addEventListener("touchend", event => {
-      if (!touchScrubbing || touchMoved ||
-          !event.changedTouches.length) {
-          touchScrubbing = false;
-          return;
-      }
-
-      const touch = event.changedTouches[0];
-      const now = Date.now();
-
-      const isDoubleTap =
-          lastTapTime > 0 &&
-          now - lastTapTime < 600 &&
-          Math.hypot(
-              touch.clientX - lastTapX,
-              touch.clientY - lastTapY
-          ) < 40;
-
-      if (isDoubleTap) {
-          lastTapTime = 0;
-          touchScrubbing = false;
-
-          resetChartZoom();
-          return;
-      }
-
-      // Remember the first tap
-      lastTapTime = now;
-      lastTapX = touch.clientX;
-      lastTapY = touch.clientY;
-
+    // Ignore if not scrubbing, if the finger moved, if another finger is still down,
+    // or if more than one touch ended simultaneously
+    if (
+      !touchScrubbing ||
+      touchMoved ||
+      event.touches.length > 0 ||
+      event.changedTouches.length !== 1
+    ) {
       touchScrubbing = false;
+      lastTapTime = 0;
+      lastTapIdentifier = null;
+      return;
+    }
 
+    const touch = event.changedTouches[0];
+    const now = Date.now();
+
+    const isDoubleTap =
+        lastTapTime > 0 &&
+        touch.identifier === lastTapIdentifier &&
+        now - lastTapTime > 50 &&
+        now - lastTapTime < 600 &&
+        Math.hypot(
+            touch.clientX - lastTapX,
+            touch.clientY - lastTapY
+        ) < 40;
+
+    if (isDoubleTap) {
+        lastTapTime = 0;
+        touchScrubbing = false;
+        lastTapIdentifier = null;
+        resetChartZoom();
+        return;
+    }
+
+    // Remember the first tap and which finger made it
+    lastTapTime = now;
+    lastTapX = touch.clientX;
+    lastTapY = touch.clientY;
+    lastTapIdentifier = touch.identifier;
+    touchScrubbing = false;
   }, { capture: true });
 
 
