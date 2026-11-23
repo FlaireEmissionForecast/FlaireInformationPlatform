@@ -1036,18 +1036,20 @@
     };
   }
 
+  function sortEntriesByDate(history) {
+    return Object.entries(history).sort(
+      (a, b) => new Date(a[0]) - new Date(b[0])
+    );
+  }
+
   function makeTracesFromPayload(payload, yAutoscale) {
     const data = payload.data || {};
     const history = data.history || {};
     const forecast = data.forecast || {};
     const unit = getLangVer(payload.metadata?.unit) || "";
 
-    const historyEntries = Object.entries(history).sort(
-      (a, b) => new Date(a[0]) - new Date(b[0])
-    );
-    const forecastEntries = Object.entries(forecast).sort(
-      (a, b) => new Date(a[0]) - new Date(b[0])
-    );
+    const historyEntries = sortEntriesByDate(history)
+    const forecastEntries = sortEntriesByDate(forecast);
 
     // Connect history and forecast traces by adding first forecast point to history
     if (historyEntries.length > 0 && forecastEntries.length > 0 && currentChartType == "line") {
@@ -1491,6 +1493,13 @@
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
+      // Find the best time windows for bot series and spot prices
+      const spotPayload = await fetchSpotPricePayload(payload);
+      const bestSeriesBin = getSortedBins(payload, 3);
+      const bestSpotBin = getSortedBins(spotPayload, 3);
+      // console.log(bestSeriesBin);
+      // console.log(bestSpotBin);
+
       const payloadUnit = getLangVer(payload.metadata?.unit);
       const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
       const config = { 
@@ -1542,6 +1551,14 @@
       const title = `${seriesName.charAt(0).toUpperCase() + seriesName.slice(1)} for ${titleDate}`
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
+
+      // Find the best time windows for bot series and spot prices
+      const spotPayload = await fetchSpotPricePayload(payload);
+      const bestSeriesBin = getSortedBins(payload, 3);
+      const bestSpotBin = getSortedBins(spotPayload, 3);
+      // console.log(spotPayload);
+      // console.log(bestSeriesBin);
+      // console.log(bestSpotBin);
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
       const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
@@ -1773,6 +1790,51 @@
     }).format(date);
 
     element.textContent = `Forecast updated: ${formatted}`;
+  }
+
+  function isEmpty(array) {
+    return Array.isArray(array) && array.length === 0
+  }
+
+  function getSortedBins(payload, binLen) {
+    const data = payload.data || {};
+    const forecast = data.forecast || {};
+    const history  = data.history || {};
+
+    // Primarily use forecast data, but if it is not available use history data
+    const sortData = isEmpty(data.forecast) ? history : forecast;
+
+    console.log(sortData)
+
+    // Get forecast entries ["datetime", value]
+    const sortedEntries = sortEntriesByDate(sortData);
+
+    // Calculate averages of all of the N consecutive bins which result in binLen bins
+    const avgBins = [];
+    for (let i = 0; i <= sortedEntries.length - binLen; i++) {
+      const window = sortedEntries.slice(i, i + binLen) // Get the slices of date-value entries
+      const start = window.at(0)[0]
+      const end = window.at(-1)[0]
+      const avg = window.reduce((sum, entry) => sum + entry[1], 0) / binLen // calculate sum, init to zero
+      // Push the avg bin values to the list
+      avgBins.push({
+        startTime: start,
+        endTime: end,
+        average: avg
+      })
+    }
+
+    // Sort the bins in asc/desc order depending on if higher or lower value is better
+    // TODO: Add sort reversing logic 
+    avgBins.sort((a, b) => a.average - b.average)
+
+    // Return bins with rank values derived from sorted order
+    // NOTE: Ranks could be used to assign weights to the series
+    avgBins.forEach((bin, index) => bin.rank = index);
+
+    // console.log(avgBins)
+    
+    return avgBins
   }
 
   // --- Statistics dialog integration ---
