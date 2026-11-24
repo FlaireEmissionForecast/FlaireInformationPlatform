@@ -917,11 +917,108 @@
     };
   }
 
-  function buildLayout(forecastStart, payloadUnit, showSpotAxis = false) {
+  const BEST_WINDOW_STYLES = {
+    series: {
+      label: "series",
+      color: "rgb(37, 99, 225)",       // blue
+      fill: "rgba(37, 99, 225, 0.1)",
+      lineWidth: 1.5,
+      lineDash: "dot"
+    },
+    spot: {
+      label: "spot",
+      color: "rgb(170, 58, 237)",     // purple
+      fill: "rgba(170, 58, 237, 0.1)",
+      lineWidth: 1.5,
+      lineDash: "dot"
+    },
+    combined: {
+      label: "combined",
+      color: "rgb(22, 163, 74)",      // green
+      fill: "rgba(22, 163, 74, 0.20)",
+      lineWidth: 2,
+      lineDash: "solid"
+    }
+  };
+
+  function buildBestWindowShapes(bestWindows = []) {
+    const shapes = [];
+    const validWindows = bestWindows.filter(window =>
+      window?.bin?.startTime && window?.bin?.endTime
+    );
+
+    // Draw the translucent windows first so the data traces remain readable.
+    validWindows.forEach(window => {
+      const style = BEST_WINDOW_STYLES[window.type];
+      if (!style) return;
+
+      shapes.push({
+        type: "rect",
+        xref: "x",
+        yref: "paper",
+        x0: window.bin.startTime,
+        x1: window.bin.endTime,
+        y0: 0,
+        y1: 1,
+        fillcolor: style.fill,
+        line: { width: 0 },
+        layer: "below"
+      });
+    });
+
+    // Each window has a full-height start and end line. The combined window
+    // uses a stronger color and thicker solid boundaries to stand out.
+    validWindows.forEach(window => {
+      const style = BEST_WINDOW_STYLES[window.type];
+      if (!style) return;
+
+      [window.bin.startTime, window.bin.endTime].forEach(timestamp => {
+        shapes.push({
+          type: "line",
+          xref: "x",
+          yref: "paper",
+          x0: timestamp,
+          x1: timestamp,
+          y0: 0,
+          y1: 1,
+          line: {
+            color: style.color,
+            width: style.lineWidth,
+            dash: style.lineDash
+          }
+        });
+      });
+    });
+
+    return shapes;
+  }
+
+  function makeBestWindowLegendTraces(bestWindows = []) {
+    return bestWindows.map((window, index) => {
+      const style = BEST_WINDOW_STYLES[window.type];
+      if (!style) return null;
+
+      return {
+        // Null coordinates create a legend swatch without drawing chart data.
+        x: [null],
+        y: [null],
+        type: "scatter",
+        mode: "lines",
+        name: `Best ${style.label}`,
+        line: { color: style.color, width: 4 },
+        legendrank: 10 + index,
+        showlegend: false,
+        hoverinfo: "skip"
+      };
+    }).filter(Boolean);
+  }
+
+  function buildLayout(forecastStart, payloadUnit, showSpotAxis = false, bestWindows = []) {
     const theme = getMainChartTheme();
 
     const shapes = [];
     if (forecastStart) {
+      // Keep the forecast-start line first; toggleTheme updates shapes[0].
       shapes.push({
         type: 'line',
         x0: forecastStart,
@@ -936,6 +1033,8 @@
         }
       });
     }
+
+    shapes.push(...buildBestWindowShapes(bestWindows));
 
     return {
       template: theme.template,
@@ -1493,14 +1592,13 @@
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
-      // Find the best FUTURE time windows for both series and spot prices
-      const spotPayload = await fetchSpotPricePayload(payload, true);
-      const seriesBins = getSortedBins(payload, 3);
-      const spotBins = getSortedBins(spotPayload, 3);
-      const bestCoincidentBin = findBestCombinedBin(seriesBins, spotBins, "spot")
+      // Highlight the best series window, plus spot and combined windows
+      // only when spot prices are actually displayed.
+      const bestWindows = getBestTimeWindows(payload, showSpotPrices);
+      traces.push(...makeBestWindowLegendTraces(bestWindows));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
+      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, bestWindows);
       const config = { 
         responsive: true, 
         displaylogo: false, 
@@ -1551,15 +1649,14 @@
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
-      // Find the best FUTURE time windows for both series and spot prices
-      const spotPayload = await fetchSpotPricePayload(payload, true);
-      const seriesBins = getSortedBins(payload, 3);
-      const spotBins = getSortedBins(spotPayload, 3);
-      const bestCoincidentBin = findBestCombinedBin(seriesBins, spotBins)
-      console.log(bestCoincidentBin)
+      // Highlight the best series window, plus spot and combined windows
+      // only when spot prices are actually displayed.
+      const bestWindows = getBestTimeWindows(payload, showSpotPrices);
+      console.log(bestWindows)
+      traces.push(...makeBestWindowLegendTraces(bestWindows));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
+      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, bestWindows);
       const config = { 
         responsive: true, 
         displaylogo: false, 
@@ -1802,41 +1899,77 @@
     return true;
   }
 
-  function getSortedBins(payload, binLen) {
-    const data = payload.data || {};
+  function getSortedBins(payload, binLen, higherIsBetter = false) {
+    if (!payload?.data || !Number.isInteger(binLen) || binLen < 1) return [];
+
+    const data = payload.data;
     const forecast = data.forecast || {};
-    const history  = data.history || {};
+    const history = data.history || {};
 
-    // Primarily use forecast data, but if it is not available use history data
-    const sortData = isEmpty(data.forecast) ? history : forecast;
-
-    // Get forecast entries ["datetime", value]
+    // Primarily use forecast data, but if it is not available use history data.
+    const sortData = isEmpty(forecast) ? history : forecast;
     const sortedEntries = sortEntriesByDate(sortData);
-
-    // Calculate averages of all of the N consecutive bins which result in binLen bins
     const avgBins = [];
+
     for (let i = 0; i <= sortedEntries.length - binLen; i++) {
-      const window = sortedEntries.slice(i, i + binLen) // Get the slices of date-value entries
-      const start = window.at(0)[0]
-      const end = window.at(-1)[0]
-      const avg = window.reduce((sum, entry) => sum + entry[1], 0) / binLen // calculate sum, init to zero
-      // Push the avg bin values to the list
+      const window = sortedEntries.slice(i, i + binLen);
+      const values = window.map(entry => Number(entry[1]));
+      if (values.some(value => !Number.isFinite(value))) continue;
+
+      const avg = values.reduce((sum, value) => sum + value, 0) / binLen;
       avgBins.push({
-        startTime: start,
-        endTime: end,
+        startTime: window.at(0)[0],
+        endTime: window.at(-1)[0],
         average: avg
-      })
+      });
     }
 
-    // Sort the bins in asc/desc order depending on if higher or lower value is better
-    // TODO: Add sort reversing logic 
-    avgBins.sort((a, b) => a.average - b.average)
+    // Rank the best averages first: low-to-high for emissions/prices,
+    // high-to-low for renewable and domestic shares.
+    avgBins.sort((a, b) => higherIsBetter
+      ? b.average - a.average
+      : a.average - b.average
+    );
 
-    // Return bins with rank values derived from sorted order
-    // NOTE: Ranks could be used to assign weights to the series
-    avgBins.forEach((bin, index) => bin.rank = index);
+    // Rank zero is the best window, regardless of optimization direction.
+    avgBins.forEach((bin, index) => { bin.rank = index; });
+    return avgBins;
+  }
 
-    return avgBins
+  function getBestTimeWindows(payload, includeSpotWindows = false) {
+    // Only these two series are higher-is-better (desc. order); emissions remains lower-is-better.
+    const higherIsBetterTypes = [
+      "renew_production_share",
+      "domestic_production_share"
+      ];
+
+    const higherIsBetter = higherIsBetterTypes.includes(currentSeriesKey);
+    const seriesBins = getSortedBins(payload, 3, higherIsBetter);
+    const bestWindows = [];
+
+    // Get best series time window
+    if (seriesBins[0]) {
+      bestWindows.push({ type: "series", bin: seriesBins[0] });
+    }
+
+    // Spot and combined rankings are only needed when the spot overlay is active.
+    // fetchSpotPriceTraces has already populated currentSpotPricePayload in that case.
+    if (includeSpotWindows && currentSpotPricePayload) {
+      const spotBins = getSortedBins(currentSpotPricePayload, 3, false);
+
+      // Get best spot price time window
+      if (spotBins[0]) {
+        bestWindows.push({ type: "spot", bin: spotBins[0] });
+      }
+
+      // Get best combined time window
+      const bestCombinedBin = findBestCombinedBin(seriesBins, spotBins, "spot");
+      if (bestCombinedBin) {
+        bestWindows.push({ type: "combined", bin: bestCombinedBin });
+      }
+    }
+
+    return bestWindows;
   }
 
   function findBestCombinedBin(seriesBins, spotBins, tieBreaker = "spot") {
