@@ -29,7 +29,7 @@ body.dark-theme .statistics-modal {
   --stats-shadow: 0 20px 60px rgba(0, 0, 0, .55);
 }
 .statistics-dialog {
-  width: min(1360px, 100%); max-height: min(94vh, 1160px); min-height: 0;
+  width: min(1360px, 100%); max-height: min(92vh, 1160px); min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;
   border: 2px solid var(--stats-border); border-radius: 14px;
   background: var(--stats-surface); color: var(--stats-text); box-shadow: var(--stats-shadow);
@@ -129,8 +129,8 @@ body.dark-theme .statistics-status.is-warning { color: #ffc36b; }
 }
 .statistics-footnote { margin: 0; padding: 10px 22px 16px; color: var(--stats-muted); font-size: 11px; line-height: 1.55; }
 @media (max-width: 700px) {
-  .statistics-modal { padding: 4px; }
-  .statistics-dialog { max-height: 96vh; border-radius: 10px; }
+  .statistics-modal { padding: 12px 4px; }
+  .statistics-dialog { max-height: 90vh; max-height: 90dvh; border-radius: 10px; }
   .statistics-charts { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 10px 9px 2px; }
   .statistics-chart { height: 285px; }
   .statistics-header { padding: 14px 14px 10px; }
