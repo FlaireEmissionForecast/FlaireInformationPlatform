@@ -188,6 +188,52 @@
       --spot-extra-height: clamp(0px, calc((700px - 100vw) * 0.25), 100px);
     }
 
+    /* Best time-window summaries below the chart */
+    #best-windows-summary {
+      width: 100%;
+      max-width: 1000px;
+      box-sizing: border-box;
+      display: flex;
+      flex-flow: row wrap;
+      justify-content: center;
+      align-items: stretch;
+      gap: 10px;
+      margin: 10px 0 4px;
+    }
+
+    #best-windows-summary:empty {
+      display: none;
+    }
+
+    .best-window-card {
+      flex: 0 1 auto;
+      width: max-content;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 9px 12px;
+      border: 1.5px solid var(--best-window-color);
+      border-radius: 8px;
+      background-color: var(--best-window-fill);
+      color: inherit;
+    }
+
+    .best-window-card-title {
+      margin: 0 0 4px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+
+    .best-window-card-range,
+    .best-window-card-average {
+      margin: 0;
+      font-size: 14px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+      white-space: pre-line;
+    }
+
     /* General chart loading overlay */
     #chart-loading {
         position: absolute;
@@ -702,6 +748,8 @@
     <div id="spotprice-loading" aria-live="polite">Loading spot price data</div>
   </div>
 
+  <div id="best-windows-summary" aria-label="Best time windows"></div>
+
   <div class="chart-type-toggle">
     <span class="toggle-pair chart-type-toggle">
       <span>Overlay spot price</span>
@@ -756,6 +804,7 @@
   const controlsDrawer = document.getElementById('control-drawer');
   const controlsToggle = document.getElementById('controls-toggle');
   const mobileControlsMedia = window.matchMedia("(max-width: 700px)");
+  const bestWindowsSummary = document.getElementById("best-windows-summary");
   const spotPriceToggle = document.getElementById("spotprice-toggle");
   const yAutoscaleToggle = document.getElementById("yAutoscaleToggle");
   const chartTypeToggle = document.getElementById("chart-type-toggle");
@@ -1595,6 +1644,7 @@
       // Highlight the best series window, plus spot and combined windows
       // only when spot prices are actually displayed.
       const bestWindows = getBestTimeWindows(payload, showSpotPrices);
+      renderBestWindowsSummary(bestWindows, payload);
       traces.push(...makeBestWindowLegendTraces(bestWindows));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
@@ -1652,7 +1702,7 @@
       // Highlight the best series window, plus spot and combined windows
       // only when spot prices are actually displayed.
       const bestWindows = getBestTimeWindows(payload, showSpotPrices);
-      console.log(bestWindows)
+      renderBestWindowsSummary(bestWindows, payload);
       traces.push(...makeBestWindowLegendTraces(bestWindows));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
@@ -2017,6 +2067,144 @@
 
       // Return the "win-win" time window with the lowest combined rank
       return combBins[0] ?? null;
+  }
+
+  function getBestWindowMetric(payload) {
+
+    if (currentSeriesKey === "renew_production_share") {
+      return {
+        title: "Highest renewable share",
+        averageLabel: "Avg. renewable share",
+        combinedTitle: "Highest renewable share and lowest spot prices"
+      };
+    }
+
+    if (currentSeriesKey === "domestic_production_share") {
+      return {
+        title: "Highest domestic share",
+        averageLabel: "Avg. domestic share",
+        combinedTitle: "Highest domestic share and lowest spot prices"
+      };
+    }
+
+    if (currentSeriesKey === "consumption_emissions") {
+      return {
+        title: "Lowest emissions",
+        averageLabel: "Avg. emissions",
+        combinedTitle: "Lowest emissions and spot prices"
+      };
+    }
+
+    seriesName = getLangVer(payload?.metadata?.name).trim();
+    const fallbackName = seriesName || "Series values";
+
+    return {
+      title: `Lowest ${fallbackName.toLowerCase()}`,
+      averageLabel: fallbackName,
+      combinedTitle: `Lowest ${fallbackName.toLowerCase()} and spot prices`
+    };
+  }
+
+  function getBestWindowDateTimeParts(timestamp) {
+    const raw = String(timestamp || "");
+    const [datePart, timePart = ""] = raw.includes("T")
+      ? raw.split("T")
+      : raw.split(" ");
+
+    const date = new Date(`${datePart}T00:00:00Z`);
+
+    const dateLabel = Number.isNaN(date.getTime())
+      ? datePart
+      : new Intl.DateTimeFormat(undefined, {
+          day: "numeric",
+          month: "short",
+          timeZone: "UTC"
+        }).format(date);
+
+    // Keep the API's local time rather than converting it to another timezone.
+    const clock = timePart
+      .replace(/(?:Z|[+-]\d{2}:?\d{2})$/, "")
+      .slice(0, 5);
+
+    return { datePart, dateLabel, clock };
+  }
+
+  function formatBestWindowRange(startTime, endTime) {
+    const start = getBestWindowDateTimeParts(startTime);
+    const end = getBestWindowDateTimeParts(endTime);
+
+    if (start.datePart === end.datePart) {
+      return `${start.dateLabel}, ${start.clock}–${end.clock}`;
+    }
+
+    return `${start.dateLabel} ${start.clock} – ${end.dateLabel} ${end.clock}`;
+  }
+
+  function formatBestWindowAverage(value, unit = "") {
+    const numericValue = Number(value);
+
+    if (!Number.isFinite(numericValue)) {
+      return "—";
+    }
+
+    return `${numericValue.toFixed(2)}${unit ? ` ${unit}` : ""}`;
+  }
+
+  function renderBestWindowsSummary(bestWindows = [], payload = {}) {
+    bestWindowsSummary.replaceChildren();
+
+    if (!bestWindows.length) return;
+
+    const metric = getBestWindowMetric(payload);
+    const seriesUnit = getLangVer(payload.metadata?.unit);
+
+    bestWindows.forEach(window => {
+      const style = BEST_WINDOW_STYLES[window.type];
+
+      if (!style || !window.bin) return;
+
+      const card = document.createElement("section");
+      card.className = "best-window-card";
+
+      // Match the corresponding chart highlight.
+      card.style.setProperty("--best-window-color", style.color);
+      card.style.setProperty("--best-window-fill", style.fill);
+
+      const title = document.createElement("p");
+      title.className = "best-window-card-title";
+
+      const range = document.createElement("p");
+      range.className = "best-window-card-range";
+      range.textContent = formatBestWindowRange(
+        window.bin.startTime,
+        window.bin.endTime
+      );
+
+      const average = document.createElement("p");
+      average.className = "best-window-card-average";
+
+      if (window.type === "series") {
+        title.textContent = metric.title;
+        average.textContent =
+          `${metric.averageLabel}: ${formatBestWindowAverage(window.bin.average, seriesUnit)}`;
+      }
+
+      if (window.type === "spot") {
+        title.textContent = "Lowest spot prices";
+        average.textContent =
+          `Avg. spot price: ${formatBestWindowAverage(window.bin.average, "€/MWh")}`;
+      }
+
+      if (window.type === "combined") {
+        title.textContent = metric.combinedTitle;
+        average.textContent =
+          `${metric.averageLabel}: ${formatBestWindowAverage(window.bin.seriesAvg, seriesUnit)}\n` +
+          `Avg. spot price: ${formatBestWindowAverage(window.bin.spotAvg, "€/MWh")}`;
+      }
+
+      card.append(title, range, average);
+      bestWindowsSummary.appendChild(card);
+    });
   }
 
   // --- Statistics dialog integration ---
