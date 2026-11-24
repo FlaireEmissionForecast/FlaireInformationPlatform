@@ -164,7 +164,8 @@
     }
 
     #forecast-date,
-    #history-select {
+    #history-select,
+    #best-window-length-select {
       font-size: 16px;
     }
 
@@ -206,7 +207,7 @@
     }
 
     .best-windows-heading {
-      width: 100%;
+      flex: 0 0 100%;
       margin: 0 0 2px;
       text-align: center;
       font-size: 16px;
@@ -583,6 +584,13 @@
         min-width: 0;
       }
 
+      /* Center the third selector when it wraps onto its own row. */
+      .control-field--best-window {
+        grid-column: 1 / -1;
+        justify-self: center;
+        width: auto;
+      }
+
       .control-field label {
         flex: 0 1 auto;
         min-width: 0;
@@ -675,11 +683,6 @@
         line-height: 1.2;
         text-align: center;
       }
-
-      .best-windows-heading {
-        text-align: center;
-        font-size: 14px;
-      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -745,6 +748,21 @@
             <div class="control-field">
               <label for="history-select">History:</label>
               <select id="history-select"></select>
+            </div>
+
+            <div class="control-field control-field--best-window">
+              <label for="best-window-length-select">Window length:</label>
+              <select id="best-window-length-select">
+                <option value="2">2 hours</option>
+                <option value="3" selected>3 hours</option>
+                <option value="4">4 hours</option>
+                <option value="5">5 hours</option>
+                <option value="6">6 hours</option>
+                <option value="7">7 hours</option>
+                <option value="8">8 hours</option>
+                <option value="9">9 hours</option>
+                <option value="10">10 hours</option>
+              </select>
             </div>
           </div>
 
@@ -827,6 +845,7 @@
   const latestButton = document.getElementById('latest-button');
   const themeToggleButton = document.getElementById('theme-toggle');
   const historySelect = document.getElementById('history-select');
+  const bestWindowLengthSelect = document.getElementById('best-window-length-select');
   const seriesButtonsContainer = document.getElementById('series-buttons');
   const controlsDrawer = document.getElementById('control-drawer');
   const controlsToggle = document.getElementById('controls-toggle');
@@ -867,8 +886,8 @@
   let currentForecastPayload = null;
   let currentSpotPricePayload = null;
 
-  // Set the length of the best bins to three by default
-  let bestBinLength = 3;
+  // Read the selected best-window duration (defaults to 3 hours).
+  let bestBinLength = Number(bestWindowLengthSelect.value) || 3;
 
   // Default to light theme
   let currentTheme = 'light';
@@ -2245,7 +2264,6 @@
 
     if (!bestWindows.length) return;
 
-    // Add dynamic heading above the information boxes.
     const heading = document.createElement("h3");
     heading.className = "best-windows-heading";
     heading.textContent = `Best upcoming ${bestBinLength}-hour time windows`;
@@ -2502,6 +2520,23 @@
   spotPriceToggle.addEventListener('change', () => {
     spotPriceToggle.setAttribute("aria-checked", String(spotPriceToggle.checked));
 
+    if (currentForecastRequest.mode === "date") {
+      loadForecastByDate(currentForecastRequest.date);
+    } else {
+      loadLatestForecast();
+    }
+  });
+
+  bestWindowLengthSelect.addEventListener("change", () => {
+    const selectedLength = Number(bestWindowLengthSelect.value);
+
+    if (!Number.isInteger(selectedLength) || selectedLength < 2 || selectedLength > 10) {
+      return;
+    }
+
+    bestBinLength = selectedLength;
+
+    // Recalculate the best windows for the currently displayed forecast.
     if (currentForecastRequest.mode === "date") {
       loadForecastByDate(currentForecastRequest.date);
     } else {
