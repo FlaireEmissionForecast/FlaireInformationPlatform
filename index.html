@@ -211,7 +211,7 @@
       max-width: 100%;
       min-width: 0;
       box-sizing: border-box;
-      padding: 9px 12px;
+      padding: 9px 9px;
       border: 1.5px solid var(--best-window-color);
       border-radius: 8px;
       background-color: var(--best-window-fill);
@@ -220,7 +220,7 @@
 
     .best-window-card-title {
       margin: 0 0 4px;
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       line-height: 1.25;
     }
@@ -228,7 +228,7 @@
     .best-window-card-range,
     .best-window-card-average {
       margin: 0;
-      font-size: 14px;
+      font-size: 13px;
       line-height: 1.4;
       overflow-wrap: anywhere;
       white-space: pre-line;
@@ -614,6 +614,19 @@
         max-width: 140px;
         padding: 4px 8px;
         font-size: 14px;
+      }
+
+      .best-window-card {
+        padding: 6px 6px;
+      }
+
+      .best-window-card-title {
+        font-size: 13px;
+      }
+
+      .best-window-card-range,
+      .best-window-card-average {
+        font-size: 11px;
       }
     }
 
@@ -2150,6 +2163,15 @@
     return `${numericValue.toFixed(2)}${unit ? ` ${unit}` : ""}`;
   }
 
+  function appendBoldAverage(element, label, value, unit) {
+    element.append(document.createTextNode(`${label}: `));
+
+    const strong = document.createElement("strong");
+    strong.textContent = formatBestWindowAverage(value, unit);
+
+    element.appendChild(strong);
+  }
+
   function renderBestWindowsSummary(bestWindows = [], payload = {}) {
     bestWindowsSummary.replaceChildren();
 
@@ -2185,21 +2207,42 @@
 
       if (window.type === "series") {
         title.textContent = metric.title;
-        average.textContent =
-          `${metric.averageLabel}: ${formatBestWindowAverage(window.bin.average, seriesUnit)}`;
+        appendBoldAverage(
+          average,
+          metric.averageLabel,
+          window.bin.average,
+          seriesUnit
+        );
       }
 
       if (window.type === "spot") {
         title.textContent = "Lowest spot prices";
-        average.textContent =
-          `Avg. spot price: ${formatBestWindowAverage(window.bin.average, "€/MWh")}`;
+        appendBoldAverage(
+          average,
+          "Avg. spot price",
+          window.bin.average,
+          "€/MWh"
+        );
       }
 
       if (window.type === "combined") {
         title.textContent = metric.combinedTitle;
-        average.textContent =
-          `${metric.averageLabel}: ${formatBestWindowAverage(window.bin.seriesAvg, seriesUnit)}\n` +
-          `Avg. spot price: ${formatBestWindowAverage(window.bin.spotAvg, "€/MWh")}`;
+
+        appendBoldAverage(
+          average,
+          metric.averageLabel,
+          window.bin.seriesAvg,
+          seriesUnit
+        );
+
+        average.appendChild(document.createElement("br"));
+
+        appendBoldAverage(
+          average,
+          "Avg. spot price",
+          window.bin.spotAvg,
+          "€/MWh"
+        );
       }
 
       card.append(title, range, average);
