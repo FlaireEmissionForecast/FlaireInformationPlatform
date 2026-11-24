@@ -1190,10 +1190,10 @@
   }
 
   // The API timestamps are already in local time; just remove the timezone offset.
-  function getForecastTimeRange(payload) {
+  function getForecastTimeRange(payload, forecastOnly = false) {
     const data = payload.data || {};
     const timestamps = [
-      ...Object.keys(data.history || {}),
+      ...( forecastOnly ? [] : Object.keys(data.history || {})),
       ...Object.keys(data.forecast || {})
     // Remove timezone information for naive timestamps (split at '+')
     ].map(timestamp => timestamp.split("+")[0]).sort();
@@ -1295,8 +1295,8 @@
     }
   }
 
-  async function fetchSpotPricePayload(forecastPayload) {
-    const range = getForecastTimeRange(forecastPayload);
+  async function fetchSpotPricePayload(forecastPayload, forecastOnly = false) {
+    const range = getForecastTimeRange(forecastPayload, forecastOnly);
     if (!range) return null;
 
     const params = new URLSearchParams({
@@ -1493,12 +1493,11 @@
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
-      // Find the best time windows for bot series and spot prices
-      const spotPayload = await fetchSpotPricePayload(payload);
-      const bestSeriesBin = getSortedBins(payload, 3);
-      const bestSpotBin = getSortedBins(spotPayload, 3);
-      // console.log(bestSeriesBin);
-      // console.log(bestSpotBin);
+      // Find the best FUTURE time windows for both series and spot prices
+      const spotPayload = await fetchSpotPricePayload(payload, true);
+      const seriesBins = getSortedBins(payload, 3);
+      const spotBins = getSortedBins(spotPayload, 3);
+      const bestCoincidentBin = findBestCombinedBin(seriesBins, spotBins, "spot")
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
       const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
@@ -1552,13 +1551,12 @@
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
-      // Find the best time windows for bot series and spot prices
-      const spotPayload = await fetchSpotPricePayload(payload);
-      const bestSeriesBin = getSortedBins(payload, 3);
-      const bestSpotBin = getSortedBins(spotPayload, 3);
-      // console.log(spotPayload);
-      // console.log(bestSeriesBin);
-      // console.log(bestSpotBin);
+      // Find the best FUTURE time windows for both series and spot prices
+      const spotPayload = await fetchSpotPricePayload(payload, true);
+      const seriesBins = getSortedBins(payload, 3);
+      const spotBins = getSortedBins(spotPayload, 3);
+      const bestCoincidentBin = findBestCombinedBin(seriesBins, spotBins)
+      console.log(bestCoincidentBin)
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
       const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices);
@@ -1792,8 +1790,16 @@
     element.textContent = `Forecast updated: ${formatted}`;
   }
 
-  function isEmpty(array) {
-    return Array.isArray(array) && array.length === 0
+  function isEmpty(value) {
+    if (Array.isArray(value)) {
+      return value.length === 0;
+    }
+
+    if (value && typeof value === 'object') {
+      return Object.keys(value).length === 0;
+    }
+
+    return true;
   }
 
   function getSortedBins(payload, binLen) {
@@ -1803,8 +1809,6 @@
 
     // Primarily use forecast data, but if it is not available use history data
     const sortData = isEmpty(data.forecast) ? history : forecast;
-
-    console.log(sortData)
 
     // Get forecast entries ["datetime", value]
     const sortedEntries = sortEntriesByDate(sortData);
@@ -1832,9 +1836,54 @@
     // NOTE: Ranks could be used to assign weights to the series
     avgBins.forEach((bin, index) => bin.rank = index);
 
-    // console.log(avgBins)
-    
     return avgBins
+  }
+
+  function findBestCombinedBin(seriesBins, spotBins, tieBreaker = "spot") {
+      // Index seriesBins by startTime and endTime
+      const seriesMap = new Map();
+
+      // Assing a key for each object for fast lookup
+      seriesBins.forEach(seObj => {
+          const key = `${seObj.startTime}_${seObj.endTime}`;
+          seriesMap.set(key, seObj);
+      });
+
+      const combBins = [];
+
+      spotBins.forEach(spObj => {
+          const key = `${spObj.startTime}_${spObj.endTime}`;
+          const seObj = seriesMap.get(key);
+
+          if (seObj) {
+              combBins.push({
+                  startTime: seObj.startTime,
+                  endTime: seObj.endTime,
+                  seriesAvg: seObj.average,
+                  spotAvg: spObj.average,
+                  binRank: seObj.rank + spObj.rank,
+                  // Required for breaking rank ties
+                  seriesRank: seObj.rank,
+                  spotRank: spObj.rank
+              });
+          }
+      });
+
+      // Sort by combined rank, then use the selected tie-breaker if needed
+      combBins.sort((a, b) => {
+          if (a.binRank !== b.binRank) {
+              return a.binRank - b.binRank;
+          }
+
+          if (tieBreaker === "spot") {
+              return a.spotRank - b.spotRank;
+          }
+
+          return a.seriesRank - b.seriesRank;
+      });
+
+      // Return the "win-win" time window with the lowest combined rank
+      return combBins[0] ?? null;
   }
 
   // --- Statistics dialog integration ---
