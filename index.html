@@ -205,6 +205,15 @@
       display: none;
     }
 
+    .best-windows-heading {
+      width: 100%;
+      margin: 0 0 2px;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 1.4;
+    }
+
     .best-window-card {
       flex: 0 1 auto;
       width: max-content;
@@ -666,6 +675,11 @@
         line-height: 1.2;
         text-align: center;
       }
+
+      .best-windows-heading {
+        text-align: center;
+        font-size: 14px;
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -852,6 +866,9 @@
   let currentForecastRequest = { mode: "latest", date: null };
   let currentForecastPayload = null;
   let currentSpotPricePayload = null;
+
+  // Set the length of the best bins to three by default
+  let bestBinLength = 3;
 
   // Default to light theme
   let currentTheme = 'light';
@@ -1656,7 +1673,7 @@
 
       // Highlight the best series window, plus spot and combined windows
       // only when spot prices are actually displayed.
-      const bestWindows = getBestTimeWindows(payload, showSpotPrices);
+      const bestWindows = getBestTimeWindows(payload, bestBinLength, showSpotPrices);
       renderBestWindowsSummary(bestWindows, payload);
       traces.push(...makeBestWindowLegendTraces(bestWindows));
 
@@ -1714,7 +1731,7 @@
 
       // Highlight the best series window, plus spot and combined windows
       // only when spot prices are actually displayed.
-      const bestWindows = getBestTimeWindows(payload, showSpotPrices);
+      const bestWindows = getBestTimeWindows(payload, bestBinLength, showSpotPrices);
       renderBestWindowsSummary(bestWindows, payload);
       traces.push(...makeBestWindowLegendTraces(bestWindows));
 
@@ -1999,57 +2016,108 @@
     return avgBins;
   }
 
-  function getBestTimeWindows(payload, includeSpotWindows = false) {
-    // Only these two series are higher-is-better (desc. order); emissions remains lower-is-better.
+  function getWindowKey(bin) {
+    return `${bin.startTime}_${bin.endTime}`;
+  }
+
+  function getBestTimeWindows(payload, binLength, includeSpotWindows = false) {
+    // Only these two series are higher-is-better.
     const higherIsBetterTypes = [
       "renew_production_share",
       "domestic_production_share"
-      ];
+    ];
 
     const higherIsBetter = higherIsBetterTypes.includes(currentSeriesKey);
-    const seriesBins = getSortedBins(payload, 3, higherIsBetter);
+    const seriesBins = getSortedBins(payload, binLength, higherIsBetter);
     const bestWindows = [];
 
-    // Get best series time window
-    if (seriesBins[0]) {
-      bestWindows.push({ type: "series", bin: seriesBins[0] });
-    }
-
-    // Spot and combined rankings are only needed when the spot overlay is active.
-    // fetchSpotPriceTraces has already populated currentSpotPricePayload in that case.
+    // Spot averages are only available when the spot overlay is active.
     if (includeSpotWindows && currentSpotPricePayload) {
-      const spotBins = getSortedBins(currentSpotPricePayload, 3, false);
+      const spotBins = getSortedBins(currentSpotPricePayload, binLength, false);
 
-      // Get best spot price time window
-      if (spotBins[0]) {
-        bestWindows.push({ type: "spot", bin: spotBins[0] });
+      // Index both datasets by their time-window boundaries.
+      const seriesMap = new Map(
+        seriesBins.map(bin => [getWindowKey(bin), bin])
+      );
+
+      const spotMap = new Map(
+        spotBins.map(bin => [getWindowKey(bin), bin])
+      );
+
+      // Find the best series window that also has matching spot data.
+      const bestSeriesBin = seriesBins.find(bin =>
+        spotMap.has(getWindowKey(bin))
+      );
+
+      if (bestSeriesBin) {
+        const matchingSpotBin = spotMap.get(getWindowKey(bestSeriesBin));
+
+        bestWindows.push({
+          type: "series",
+          bin: {
+            ...bestSeriesBin,
+            seriesAvg: bestSeriesBin.average,
+            spotAvg: matchingSpotBin.average
+          }
+        });
       }
 
-      // Get best combined time window
-      const bestCombinedBin = findBestCombinedBin(seriesBins, spotBins, "spot");
+      // Find the best spot window that also has matching series data.
+      const bestSpotBin = spotBins.find(bin =>
+        seriesMap.has(getWindowKey(bin))
+      );
+
+      if (bestSpotBin) {
+        const matchingSeriesBin = seriesMap.get(getWindowKey(bestSpotBin));
+
+        bestWindows.push({
+          type: "spot",
+          bin: {
+            ...bestSpotBin,
+            seriesAvg: matchingSeriesBin.average,
+            spotAvg: bestSpotBin.average
+          }
+        });
+      }
+
+      // Find the best combined time window.
+      const bestCombinedBin = findBestCombinedBin(
+        seriesBins,
+        spotBins,
+        "spot"
+      );
+
       if (bestCombinedBin) {
-        bestWindows.push({ type: "combined", bin: bestCombinedBin });
+        bestWindows.push({
+          type: "combined",
+          bin: bestCombinedBin
+        });
       }
+    } else if (seriesBins[0]) {
+      // Without spot data, only the series average is available.
+      bestWindows.push({
+        type: "series",
+        bin: {
+          ...seriesBins[0],
+          seriesAvg: seriesBins[0].average,
+          spotAvg: null
+        }
+      });
     }
 
     return bestWindows;
   }
 
   function findBestCombinedBin(seriesBins, spotBins, tieBreaker = "spot") {
-      // Index seriesBins by startTime and endTime
-      const seriesMap = new Map();
-
       // Assing a key for each object for fast lookup
-      seriesBins.forEach(seObj => {
-          const key = `${seObj.startTime}_${seObj.endTime}`;
-          seriesMap.set(key, seObj);
-      });
+      const seriesMap = new Map(
+        seriesBins.map(bin => [getWindowKey(bin), bin])
+      );
 
       const combBins = [];
 
       spotBins.forEach(spObj => {
-          const key = `${spObj.startTime}_${spObj.endTime}`;
-          const seObj = seriesMap.get(key);
+          const seObj = seriesMap.get(getWindowKey(spObj));
 
           if (seObj) {
               combBins.push({
@@ -2130,7 +2198,7 @@
       ? datePart
       : new Intl.DateTimeFormat(undefined, {
           day: "numeric",
-          month: "short",
+          month: "numeric",
           timeZone: "UTC"
         }).format(date);
 
@@ -2147,7 +2215,7 @@
     const end = getBestWindowDateTimeParts(endTime);
 
     if (start.datePart === end.datePart) {
-      return `${start.dateLabel}, ${start.clock}–${end.clock}`;
+      return `${start.dateLabel}, ${start.clock} – ${end.clock}`;
     }
 
     return `${start.dateLabel} ${start.clock} – ${end.dateLabel} ${end.clock}`;
@@ -2176,6 +2244,12 @@
     bestWindowsSummary.replaceChildren();
 
     if (!bestWindows.length) return;
+
+    // Add dynamic heading above the information boxes.
+    const heading = document.createElement("h3");
+    heading.className = "best-windows-heading";
+    heading.textContent = `Best upcoming ${bestBinLength}-hour time windows`;
+    bestWindowsSummary.appendChild(heading);
 
     const metric = getBestWindowMetric(payload);
     const seriesUnit = getLangVer(payload.metadata?.unit);
@@ -2207,34 +2281,25 @@
 
       if (window.type === "series") {
         title.textContent = metric.title;
-        appendBoldAverage(
-          average,
-          metric.averageLabel,
-          window.bin.average,
-          seriesUnit
-        );
       }
 
       if (window.type === "spot") {
         title.textContent = "Lowest spot prices";
-        appendBoldAverage(
-          average,
-          "Avg. spot price",
-          window.bin.average,
-          "€/MWh"
-        );
       }
 
       if (window.type === "combined") {
         title.textContent = metric.combinedTitle;
+      }
 
-        appendBoldAverage(
-          average,
-          metric.averageLabel,
-          window.bin.seriesAvg,
-          seriesUnit
-        );
+      appendBoldAverage(
+        average,
+        metric.averageLabel,
+        window.bin.seriesAvg,
+        seriesUnit
+      );
 
+      // Only display spot price when spot data is available.
+      if (window.bin.spotAvg != null) {
         average.appendChild(document.createElement("br"));
 
         appendBoldAverage(
