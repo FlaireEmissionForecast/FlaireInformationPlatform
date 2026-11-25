@@ -15,7 +15,7 @@
   <style>
     /* Fluid typography for headings */
     :root {
-      --heading-fluid: clamp(22px, 4.5vw, 36px);
+      --heading-fluid: calc(clamp(21px, 4.5vw, 36px));
     }
 
     /* Default light theme styles */
@@ -49,7 +49,7 @@
       position: absolute;
       left: 20px;
       top: 20px;
-      height: clamp(35px, 5vw, 50px);
+      height: clamp(28px, 5vw, 50px);
       width: auto;
       transition: filter 0.2s;
     }
@@ -73,7 +73,7 @@
     h2 {
       font-weight: 350;
       margin: 0;
-      font-size: max(var(--heading-fluid) - 10px, 16px);
+      font-size: calc(max(var(--heading-fluid) - 10px, 16px));
     }
 
     .controls {
@@ -169,10 +169,67 @@
       font-size: 16px;
     }
 
+    .chart-title-container {
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+    }
+
     #chart-title {
       margin: 0 0 15px 0;
       font-weight: 350;
       text-align: center;
+    }
+
+    #refresh-chart-button {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: center;
+      width: calc(clamp(24px, var(--heading-fluid) - 8px, 30px));
+      height: calc(clamp(24px, var(--heading-fluid) - 8px, 30px));
+      font-size: calc(clamp(16px, var(--heading-fluid) - 14px, 21px));
+      flex-shrink: 0;
+      margin: 0 0 15px 0;
+      padding: 0;
+      border: 1px solid #ccc;
+      border-radius: 50%;
+      background: #fff;
+      color: #4a90e2;
+      line-height: 1;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+    }
+
+    #refresh-chart-button.is-spinning {
+      animation: refresh-rotation 0.6s ease-in-out;
+    }
+
+    @keyframes refresh-rotation {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    #refresh-chart-button:hover {
+      background: #edf5fd;
+    }
+
+    #refresh-chart-button:focus-visible {
+      outline: 3px solid #4a90e2;
+      outline-offset: 2px;
+    }
+
+    body.dark-theme #refresh-chart-button {
+      border-color: #555;
+      background: #333;
+      color: #8bbcf0;
+    }
+
+    body.dark-theme #refresh-chart-button:hover {
+      background: #414141;
     }
 
     /* Best / worst window display control: stays outside the mobile drawer. */
@@ -183,7 +240,7 @@
       flex-flow: row wrap;
       justify-content: center;
       align-items: center;
-      column-gap: 12px;
+      column-gap: 8px;
       row-gap: 6px;
       margin: -4px auto 12px;
     }
@@ -192,7 +249,7 @@
       flex: 0 0 auto;
       white-space: nowrap;
       color: #66727c;
-      font-size: 12px;
+      font-size: calc(clamp(12px, var(--heading-fluid) - 14px, 14px));
       font-weight: 600;
       letter-spacing: 0.04em;
       text-transform: uppercase;
@@ -269,13 +326,13 @@
 
       width: 100%;
       max-width: 1000px;
-      height: calc(clamp(300px, 55vh, 700px) + var(--spot-extra-height));
+      height: calc(clamp(360px, min(55vh, 75vw), 700px) + var(--spot-extra-height));
       position: relative;
       margin: 0 0 0 0;
     }
 
     #chart-container.has-spotprices {
-      --spot-extra-height: clamp(0px, calc((700px - 100vw) * 0.25), 100px);
+      --spot-extra-height: clamp(0px, calc((700px - 100vw) * 0.20), 100px);
     }
 
     /* Best time-window summaries below the chart */
@@ -570,8 +627,8 @@
       background-color: #fff;
       color: #333;
       font: inherit;
-      font-size: 16px;
-      font-weight: 500;
+      font-size: calc(clamp(12px, var(--heading-fluid) - 8px, 16px));
+      font-weight: 600;
       text-align: left;
       cursor: pointer;
     }
@@ -869,6 +926,12 @@
 
   <div class="chart-title-container">
     <h2 id="chart-title"></h2>
+    <button
+      type="button"
+      id="refresh-chart-button"
+      aria-label="Refresh forecast data"
+      title="Refresh forecast data"
+    >&#x27f3;</button>
   </div>
 
   <div class="window-display-control">
@@ -955,6 +1018,7 @@
   const spotPriceToggle = document.getElementById("spotprice-toggle");
   const yAutoscaleToggle = document.getElementById("yAutoscaleToggle");
   const chartTypeToggle = document.getElementById("chart-type-toggle");
+  const refreshChartButton = document.getElementById("refresh-chart-button");
   const calculateStatisticsButton = document.getElementById("calculate-statistics-button");
   const statisticsDialog = new StatisticsDialog({
     getTheme: () => currentTheme,
@@ -1645,7 +1709,7 @@
     }
   }
 
-  async function fetchSpotPricePayload(forecastPayload, forecastOnly = false) {
+  async function fetchSpotPricePayload(forecastPayload, forecastOnly = false, forceRefresh = false) {
     const range = getForecastTimeRange(forecastPayload, forecastOnly);
     if (!range) return null;
 
@@ -1655,7 +1719,7 @@
       tz: DEFAULT_TZ
     });
     const url = `${API_BASE}/spotprice/range?${params.toString()}`;
-    const cached = readSpotPriceCache(url);
+    const cached = forceRefresh ? null : readSpotPriceCache(url);
 
     if (cached && cached.payload) {
       currentSpotPricePayload = cached.payload;
@@ -1677,13 +1741,13 @@
     }
   }
 
-  async function fetchSpotPriceTraces(forecastPayload) {
+  async function fetchSpotPriceTraces(forecastPayload, forceRefresh = false) {
     if (!spotPriceToggle.checked) return [];
 
     const range = getForecastTimeRange(forecastPayload);
     if (!range) return [];
 
-    const payload = await fetchSpotPricePayload(forecastPayload);
+    const payload = await fetchSpotPricePayload(forecastPayload, false, forceRefresh);
     return payload ? makeSpotPriceTraces(payload, range) : [];
   }
 
@@ -1807,7 +1871,7 @@
     return response.json();
   }
 
-  async function loadForecastByDate(dateStr) {
+  async function loadForecastByDate(dateStr, forceSpotPriceRefresh = false) {
     setChartLoading(true, "Loading forecast…");
     if (!dateStr) {
       chartDiv.innerHTML = `<p style="color:red;">Please select a forecast date.</p>`;
@@ -1835,7 +1899,7 @@
       currentForecastPayload = payload;
       currentSpotPricePayload = null;
       const traces = makeTracesFromPayload(payload, yAutoscale);
-      const spotTraces = await fetchSpotPriceTraces(payload);
+      const spotTraces = await fetchSpotPriceTraces(payload, forceSpotPriceRefresh);
       const showSpotPrices = spotTraces.length > 0
       traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
@@ -1882,7 +1946,7 @@
     }
   }
 
-  async function loadLatestForecast() {
+  async function loadLatestForecast(forceSpotPriceRefresh = false) {
     const params = new URLSearchParams({
       series_key: currentSeriesKey,
       history_len: historySelect.value || "1D",
@@ -1903,7 +1967,7 @@
       currentForecastPayload = payload;
       currentSpotPricePayload = null;
       const traces = makeTracesFromPayload(payload, yAutoscale);
-      const spotTraces = await fetchSpotPriceTraces(payload);
+      const spotTraces = await fetchSpotPriceTraces(payload, forceSpotPriceRefresh);
       const showSpotPrices = spotTraces.length > 0
       traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
@@ -2822,6 +2886,24 @@
   updateWindowDisplayControl();
 
   calculateStatisticsButton.addEventListener("click", calculateAndShowStatistics);
+
+  refreshChartButton.addEventListener("click", () => {
+    refreshChartButton.classList.remove("is-spinning");
+
+    // Restart the animation, including on repeated clicks.
+    void refreshChartButton.offsetWidth;
+    refreshChartButton.classList.add("is-spinning");
+
+    if (currentForecastRequest.mode === "date") {
+      loadForecastByDate(currentForecastRequest.date, true);
+    } else {
+      loadLatestForecast(true);
+    }
+  });
+
+  refreshChartButton.addEventListener("animationend", () => {
+    refreshChartButton.classList.remove("is-spinning");
+  });
 
   loadButton.addEventListener('click', () => {
     // closeControlsDrawerAfterSelection();
