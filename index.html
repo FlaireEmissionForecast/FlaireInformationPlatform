@@ -2371,7 +2371,7 @@
 
     const forecastRange = getForecastTimeRange(payload, true);
     const higherIsBetter = higherIsBetterTypes.includes(currentSeriesKey);
-    const seriesBins = getSortedBins(payload, binLength, higherIsBetter);
+    const seriesBins = getSortedBins(payload, binLength, null, higherIsBetter);
     const windows = [];
     const worst = mode === "worst";
 
