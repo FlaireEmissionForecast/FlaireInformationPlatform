@@ -412,6 +412,33 @@
       line-height: 1.25;
     }
 
+    .best-window-card-status {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 4px;
+      color: #64727f;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .best-window-card-status-icon {
+      display: block;
+      width: 14px;
+      height: 14px;
+      flex: 0 0 14px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    body.dark-theme .best-window-card-status {
+      color: #aab5c0;
+    }
+
+
     .best-window-card-range,
     .best-window-card-average {
       display: block;
@@ -2582,6 +2609,34 @@
     });
   }
 
+  function createWindowStatusIcon(isVisible) {
+    const svgNamespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNamespace, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    svg.classList.add("best-window-card-status-icon");
+
+    const paths = isVisible
+      ? [
+          "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z",
+          "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z"
+        ]
+      : [
+          "M10.58 10.58a2 2 0 0 0 2.83 2.83",
+          "M16.68 16.68A10.94 10.94 0 0 1 12 19c-7 0-11-7-11-7a21.8 21.8 0 0 1 5.06-5.94",
+          "M2 2l20 20",
+          "M9.88 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.8 21.8 0 0 1-2.16 3.19"
+        ];
+
+    paths.forEach(d => {
+      const path = document.createElementNS(svgNamespace, "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    });
+
+    return svg;
+  }
+
   // Keep the card appearance and accessible pressed state in sync with the
   // visibility of the matching chart overlay.
   function updateWindowCardStates() {
@@ -2589,9 +2644,21 @@
       .forEach(card => {
         const type = card.dataset.windowType;
         const isVisible = windowOverlayVisibility[type] !== false;
-        const title = card.querySelector(".best-window-card-title")?.textContent.trim() || "Time window";
+        const title = card.querySelector(".best-window-card-title")?.textContent.trim()
+          || "Time window";
 
         card.classList.toggle("is-overlay-hidden", !isVisible);
+
+        const status = card.querySelector(".best-window-card-status");
+        if (status) {
+          const statusText = status.querySelector(".best-window-card-status-text");
+          const currentIcon = status.querySelector(".best-window-card-status-icon");
+          if (currentIcon) currentIcon.replaceWith(createWindowStatusIcon(isVisible));
+          if (statusText) statusText.textContent = isVisible
+            ? "Hide chart overlay"
+            : "Show chart overlay";
+        }
+
         card.setAttribute("aria-pressed", String(isVisible));
         card.setAttribute(
           "aria-label",
@@ -2825,7 +2892,14 @@
         );
       }
 
-      card.append(title, range, average);
+      const status = document.createElement("span");
+      status.className = "best-window-card-status";
+
+      const statusText = document.createElement("span");
+      statusText.className = "best-window-card-status-text";
+      status.append(createWindowStatusIcon(true), statusText);
+
+      card.append(title, range, average, status);
       bestWindowsSummary.appendChild(card);
     });
 
