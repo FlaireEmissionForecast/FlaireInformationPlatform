@@ -1730,9 +1730,12 @@
         historySelect.querySelector(`option[value="${previousValue}"]`)) {
       historySelect.value = previousValue;
     } else {
+      // Responsive default selection
+      const defaultValue = window.innerWidth < 480 ? "0D" : "1D";
+
       // default selection
-      if (historySelect.querySelector('option[value="1D"]')) {
-        historySelect.value = "1D";
+      if (historySelect.querySelector(`option[value="${defaultValue}"]`)) {
+        historySelect.value = defaultValue;
       } else if (historySelect.options.length > 0) {
         historySelect.value = historySelect.options[historySelect.options.length - 1].value;
       }
@@ -1814,7 +1817,7 @@
     const params = new URLSearchParams({
       series_key: currentSeriesKey,
       date: dateStr,
-      history_len: historySelect.value || "3D",
+      history_len: historySelect.value || "1D",
       tz: DEFAULT_TZ
     });
 
@@ -1882,7 +1885,7 @@
   async function loadLatestForecast() {
     const params = new URLSearchParams({
       series_key: currentSeriesKey,
-      history_len: historySelect.value || "3D",
+      history_len: historySelect.value || "1D",
       tz: DEFAULT_TZ
     });
 
