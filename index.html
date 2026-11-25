@@ -1949,6 +1949,56 @@
     }
   }
 
+  // Rebuild the chart from the already-loaded payload when only display settings change.
+  // This keeps chart-type and Y-axis autoscale controls independent of forecast API calls.
+  async function redrawCurrentChart() {
+    const payload = currentForecastPayload;
+    if (!payload || typeof Plotly === "undefined") return;
+
+    const traces = makeTracesFromPayload(payload, yAutoscale);
+    const range = getForecastTimeRange(payload);
+    const spotTraces = spotPriceToggle.checked && currentSpotPricePayload && range
+      ? makeSpotPriceTraces(currentSpotPricePayload, range)
+      : [];
+    const showSpotPrices = spotTraces.length > 0;
+    traces.push(...spotTraces);
+
+    const forecastStart = payload.metadata && payload.metadata.forecast_start;
+    document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
+
+    currentWindowForecastStart = forecastStart;
+    currentBestWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "best");
+    currentWorstWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "worst");
+    const displayedWindows = getDisplayedWindows();
+    renderBestWindowsSummary(displayedWindows, payload, currentWindowDisplayMode);
+    traces.push(...makeBestWindowLegendTraces(displayedWindows, currentWindowDisplayMode));
+
+    const payloadUnit = getLangVer(payload.metadata?.unit);
+    const layout = buildLayout(
+      forecastStart,
+      payloadUnit,
+      showSpotPrices,
+      displayedWindows,
+      currentWindowDisplayMode
+    );
+    const config = {
+      responsive: true,
+      displaylogo: false,
+      displayModeBar: false,
+      scrollZoom: false
+    };
+
+    try {
+      await Plotly.react(chartDiv, traces, layout, config);
+      chartDiv.classList.toggle("bar-hover", currentChartType === "bar");
+      attachRangeSliderHoverHandler();
+      attachBarSpikeSizingHandler();
+      displayGeneratedAt(payload.metadata?.generated_at);
+    } catch (error) {
+      console.error("Could not redraw chart:", error);
+    }
+  }
+
   function toggleTheme() {
     currentTheme = currentTheme === "light" ? "dark" : "light";
 
@@ -2823,18 +2873,13 @@
   yAutoscaleToggle.addEventListener('change', () => {
     yAutoscaleToggle.setAttribute("aria-checked", String(yAutoscaleToggle.checked));
     yAutoscale = yAutoscaleToggle.checked;
-    loadLatestForecast();
+    redrawCurrentChart();
   });
 
   chartTypeToggle.addEventListener('change', () => {
     currentChartType = chartTypeToggle.checked ? "bar" : "line";
     chartTypeToggle.setAttribute("aria-checked", String(chartTypeToggle.checked));
-
-    if (currentForecastRequest.mode === "date") {
-      loadForecastByDate(currentForecastRequest.date);
-    } else {
-      loadLatestForecast();
-    }
+    redrawCurrentChart();
   });
 
   // Clear sticky Plotly hover labels when clicking/touching outside the chart
