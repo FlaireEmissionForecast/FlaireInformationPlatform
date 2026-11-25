@@ -392,6 +392,15 @@
       box-shadow: 0 0 8px 4px rgba(255, 255, 255, 0.45);
     }
 
+    /* Keep the hover shadow visible even when an overlay is disabled. */
+    .best-window-card.is-overlay-hidden:hover {
+      box-shadow: 0 0 8px 4px rgba(0, 0, 0, 0.30);
+    }
+
+    body.dark-theme .best-window-card.is-overlay-hidden:hover {
+      box-shadow: 0 0 8px 4px rgba(255, 255, 255, 0.45);
+    }
+
     .best-window-card:focus-visible {
       outline: 3px solid #4a90e2;
       outline-offset: 3px;
