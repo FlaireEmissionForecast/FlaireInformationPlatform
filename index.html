@@ -365,6 +365,7 @@
     }
 
     .best-window-card {
+      display: block;
       flex: 0 1 auto;
       width: max-content;
       max-width: 100%;
@@ -375,9 +376,36 @@
       border-radius: 8px;
       background-color: var(--best-window-fill);
       color: inherit;
+      font: inherit;
+      text-align: left;
+      appearance: none;
+      -webkit-appearance: none;
+      cursor: pointer;
+      transition: filter 0.2s ease, opacity 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .best-window-card:hover {
+      box-shadow: 0 0 8px 4px rgba(0, 0, 0, 0.30);
+    }
+
+    body.dark-theme .best-window-card:hover {
+      box-shadow: 0 0 8px 4px rgba(255, 255, 255, 0.45);
+    }
+
+    .best-window-card:focus-visible {
+      outline: 3px solid #4a90e2;
+      outline-offset: 3px;
+    }
+
+    /* A muted card indicates that its matching chart overlay is hidden. */
+    .best-window-card.is-overlay-hidden {
+      filter: grayscale(1);
+      opacity: 0.42;
+      box-shadow: none;
     }
 
     .best-window-card-title {
+      display: block;
       margin: 0 0 4px;
       font-size: 15px;
       font-weight: 600;
@@ -386,11 +414,18 @@
 
     .best-window-card-range,
     .best-window-card-average {
+      display: block;
       margin: 0;
       font-size: 13px;
       line-height: 1.4;
       overflow-wrap: anywhere;
       white-space: pre-line;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .best-window-card {
+        transition: none;
+      }
     }
 
     /* General chart loading overlay */
@@ -1073,6 +1108,15 @@
 
   // Window display is independent of forecast loading and defaults to Best.
   let currentWindowDisplayMode = "best";
+
+  // Each window category controls its own chart overlay. These selections
+  // persist when switching Best/Worst, changing chart settings, or loading forecasts.
+  const windowOverlayVisibility = {
+    series: true,
+    spot: true,
+    combined: true
+  };
+
   let currentBestWindows = [];
   let currentWorstWindows = [];
   let currentWindowForecastStart = null;
@@ -1259,7 +1303,9 @@
   function buildBestWindowShapes(windows = [], mode = "best") {
     const shapes = [];
     const validWindows = windows.filter(window =>
-      window?.bin?.startTime && window?.bin?.endTime
+      window?.bin?.startTime &&
+      window?.bin?.endTime &&
+      windowOverlayVisibility[window.type] !== false
     );
 
     // Draw translucent areas first so the data traces remain readable.
@@ -2536,6 +2582,43 @@
     });
   }
 
+  // Keep the card appearance and accessible pressed state in sync with the
+  // visibility of the matching chart overlay.
+  function updateWindowCardStates() {
+    bestWindowsSummary.querySelectorAll(".best-window-card[data-window-type]")
+      .forEach(card => {
+        const type = card.dataset.windowType;
+        const isVisible = windowOverlayVisibility[type] !== false;
+        const title = card.querySelector(".best-window-card-title")?.textContent.trim() || "Time window";
+
+        card.classList.toggle("is-overlay-hidden", !isVisible);
+        card.setAttribute("aria-pressed", String(isVisible));
+        card.setAttribute(
+          "aria-label",
+          `${title}. Chart overlay ${isVisible ? "visible" : "hidden"}.`
+        );
+        card.title = `Click to ${isVisible ? "hide" : "show"} this chart overlay`;
+      });
+  }
+
+  function toggleWindowOverlay(type) {
+    if (!Object.prototype.hasOwnProperty.call(windowOverlayVisibility, type)) return;
+
+    windowOverlayVisibility[type] = !windowOverlayVisibility[type];
+    updateWindowCardStates();
+
+    // Update only the Plotly shapes; no forecast or spot-price data is fetched.
+    if (chartDiv.layout && chartDiv.data && typeof Plotly !== "undefined") {
+      Plotly.relayout(chartDiv, {
+        shapes: buildChartShapes(
+          currentWindowForecastStart,
+          getDisplayedWindows(),
+          currentWindowDisplayMode
+        )
+      });
+    }
+  }
+
   function setWindowDisplayMode(mode) {
     if (!["best", "worst", "off"].includes(mode)) return;
 
@@ -2683,24 +2766,28 @@
 
       if (!style || !window.bin) return;
 
-      const card = document.createElement("section");
+      // The entire card is a semantic button for its corresponding overlay.
+      const card = document.createElement("button");
+      card.type = "button";
       card.className = "best-window-card";
+      card.dataset.windowType = window.type;
+      card.addEventListener("click", () => toggleWindowOverlay(window.type));
 
       // Match the corresponding chart highlight.
       card.style.setProperty("--best-window-color", style.color);
       card.style.setProperty("--best-window-fill", style.fill);
 
-      const title = document.createElement("p");
+      const title = document.createElement("span");
       title.className = "best-window-card-title";
 
-      const range = document.createElement("p");
+      const range = document.createElement("span");
       range.className = "best-window-card-range";
       range.textContent = formatBestWindowRange(
         window.bin.startTime,
         window.bin.endTime
       );
 
-      const average = document.createElement("p");
+      const average = document.createElement("span");
       average.className = "best-window-card-average";
 
       if (window.type === "series") {
@@ -2741,6 +2828,8 @@
       card.append(title, range, average);
       bestWindowsSummary.appendChild(card);
     });
+
+    updateWindowCardStates();
   }
 
   // --- Statistics dialog integration ---
