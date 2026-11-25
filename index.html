@@ -772,10 +772,6 @@
         line-height: 1.2;
         text-align: center;
       }
-
-      .best-window-card {
-        border: 1.5px var(--best-window-border, solid) var(--best-window-color);
-      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1131,21 +1127,21 @@
       label: "series",
       color: "rgb(40, 87, 213)",       // royal blue
       fill: "rgba(40, 87, 213, 0.10)",
-      lineWidth: 1.5,
+      lineWidth: 2,
       lineDash: "dot"
     },
     spot: {
       label: "spot",
       color: "rgb(0, 150, 160)",       // turquoise
       fill: "rgba(0, 150, 160, 0.10)",
-      lineWidth: 1.5,
+      lineWidth: 2,
       lineDash: "dot"
     },
     combined: {
       label: "combined",
       color: "rgb(25, 175, 55)",      // emerald green
       fill: "rgba(25, 175, 55, 0.22)",
-      lineWidth: 2,
+      lineWidth: 2.5,
       lineDash: "solid"
     }
   };
@@ -1155,21 +1151,21 @@
       label: "series",
       color: "rgb(100, 116, 139)",      // slate gray
       fill: "rgba(100, 116, 139, 0.14)",
-      lineWidth: 1.5,
+      lineWidth: 2,
       lineDash: "dot"
     },
     spot: {
       label: "spot",
       color: "rgb(170, 58, 237)",     // purple
       fill: "rgba(170, 58, 237, 0.1)",
-      lineWidth: 1.5,
+      lineWidth: 2,
       lineDash: "dot"
     },
     combined: {
       label: "combined",
       color: "rgb(225, 38, 38)",      // red
       fill: "rgba(225, 38, 38, 0.22)",
-      lineWidth: 2,
+      lineWidth: 2.5,
       lineDash: "solid"
     }
   };
@@ -1190,6 +1186,17 @@
       const style = getWindowStyle(window.type, mode);
       if (!style) return;
 
+      // Match the window baseline color
+      const rgb = style.color.match(/\d+/g);
+      
+      // Adjust opacity higher for bar chart
+      const opacity = currentChartType === "bar"
+        ? (window.type === "combined" ? 0.30 : 0.20)
+        : (window.type === "combined" ? 0.22 : 0.12);
+
+      // Build a new fillcolor style
+      const fillColor = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${opacity})`;
+
       shapes.push({
         type: "rect",
         xref: "x",
@@ -1198,9 +1205,9 @@
         x1: window.bin.endTime,
         y0: 0,
         y1: 1,
-        fillcolor: style.fill,
+        fillcolor: fillColor,
         line: { width: 0 },
-        layer: "below"
+        layer: "above"
       });
     });
 
@@ -1418,7 +1425,7 @@
           legendrank: 1,
           showlegend: true,
           meta: { unit: unit },
-          marker: { color: "rgb(74,144,226)" },
+          marker: { color: "rgb(89, 150, 222)" },
           hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>History</extra>'
         },
         {
@@ -1431,7 +1438,7 @@
           legendrank: 2,
           showlegend: true,
           meta: { unit: unit },
-          marker: { color: "rgb(255,140,0)" },
+          marker: { color: "rgb(255, 150, 30)" },
           hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>Forecast</extra>'
         }
       ];
