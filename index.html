@@ -319,8 +319,8 @@
       }
 
       .window-display-option {
-        min-width: 56px;
-        padding: 2px 12px;
+        min-width: 48px;
+        padding: 2px 8px;
       }
     }
 
@@ -1018,6 +1018,7 @@
     <div class="window-display-segmented" role="group" aria-label="Window display mode">
       <button type="button" class="window-display-option" data-window-mode="best" aria-pressed="true">Best</button>
       <button type="button" class="window-display-option" data-window-mode="worst" aria-pressed="false">Worst</button>
+      <button type="button" class="window-display-option" data-window-mode="both" aria-pressed="false">Both</button>
       <button type="button" class="window-display-option" data-window-mode="off" aria-pressed="false">Off</button>
     </div>
   </div>
@@ -1144,6 +1145,21 @@
     combined: true
   };
 
+  // Both mode keeps the best and worst overlays independently toggleable.
+  // With spot prices active, combined windows are shown by default; without
+  // spot prices, the best and worst series windows are shown by default.
+  const bothWindowOverlayVisibility = {
+    withSpot: {
+      best: { series: false, spot: false, combined: true },
+      worst: { series: false, spot: false, combined: true }
+    },
+    withoutSpot: {
+      best: { series: true, spot: false, combined: true },
+      worst: { series: true, spot: false, combined: true }
+    }
+  };
+
+  let currentSpotPriceOverlayActive = false;
   let currentBestWindows = [];
   let currentWorstWindows = [];
   let currentWindowForecastStart = null;
@@ -1327,17 +1343,32 @@
     return styles[type] || null;
   }
 
+  function getBothWindowOverlayVisibility() {
+    return currentSpotPriceOverlayActive
+      ? bothWindowOverlayVisibility.withSpot
+      : bothWindowOverlayVisibility.withoutSpot;
+  }
+
+  function isWindowOverlayVisible(window, mode = currentWindowDisplayMode) {
+    if (mode === "both") {
+      const displayMode = window.displayMode === "worst" ? "worst" : "best";
+      return getBothWindowOverlayVisibility()[displayMode][window.type] !== false;
+    }
+
+    return windowOverlayVisibility[window.type] !== false;
+  }
+
   function buildBestWindowShapes(windows = [], mode = "best") {
     const shapes = [];
     const validWindows = windows.filter(window =>
       window?.bin?.startTime &&
       window?.bin?.endTime &&
-      windowOverlayVisibility[window.type] !== false
+      isWindowOverlayVisible(window, mode)
     );
 
     // Draw translucent areas first so the data traces remain readable.
     validWindows.forEach(window => {
-      const style = getWindowStyle(window.type, mode);
+      const style = getWindowStyle(window.type, window.displayMode || mode);
       if (!style) return;
 
       // Match the window baseline color
@@ -1367,7 +1398,7 @@
 
     // Each window has full-height start and end boundaries.
     validWindows.forEach(window => {
-      const style = getWindowStyle(window.type, mode);
+      const style = getWindowStyle(window.type, window.displayMode || mode);
       if (!style) return;
 
       [window.bin.startTime, window.bin.endTime].forEach(timestamp => {
@@ -1418,7 +1449,8 @@
 
   function makeBestWindowLegendTraces(windows = [], mode = "best") {
     return windows.map((window, index) => {
-      const style = getWindowStyle(window.type, mode);
+      const windowMode = window.displayMode || mode;
+      const style = getWindowStyle(window.type, windowMode);
       if (!style) return null;
 
       return {
@@ -1427,7 +1459,7 @@
         y: [null],
         type: "scatter",
         mode: "lines",
-        name: `${mode === "worst" ? "Worst" : "Best"} ${style.label}`,
+        name: `${windowMode === "worst" ? "Worst" : "Best"} ${style.label}`,
         line: { color: style.color, width: 4 },
         legendrank: 10 + index,
         showlegend: false,
@@ -1988,9 +2020,11 @@
       currentForecastRequest = { mode: "date", date: dateStr };
       currentForecastPayload = payload;
       currentSpotPricePayload = null;
+      currentSpotPriceOverlayActive = false;
       const traces = makeTracesFromPayload(payload, yAutoscale);
       const spotTraces = await fetchSpotPriceTraces(payload, forceSpotPriceRefresh);
-      const showSpotPrices = spotTraces.length > 0
+      const showSpotPrices = spotTraces.length > 0;
+      currentSpotPriceOverlayActive = showSpotPrices;
       traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = formatPrettyDate(forecastStart);
@@ -2056,9 +2090,11 @@
       currentForecastRequest = { mode: "latest", date: null };
       currentForecastPayload = payload;
       currentSpotPricePayload = null;
+      currentSpotPriceOverlayActive = false;
       const traces = makeTracesFromPayload(payload, yAutoscale);
       const spotTraces = await fetchSpotPriceTraces(payload, forceSpotPriceRefresh);
-      const showSpotPrices = spotTraces.length > 0
+      const showSpotPrices = spotTraces.length > 0;
+      currentSpotPriceOverlayActive = showSpotPrices;
       traces.push(...spotTraces);
       const forecastStart = payload.metadata && payload.metadata.forecast_start;
       const titleDate = formatPrettyDate(forecastStart);
@@ -2115,6 +2151,7 @@
       ? makeSpotPriceTraces(currentSpotPricePayload, range)
       : [];
     const showSpotPrices = spotTraces.length > 0;
+    currentSpotPriceOverlayActive = showSpotPrices;
     traces.push(...spotTraces);
 
     const forecastStart = payload.metadata && payload.metadata.forecast_start;
@@ -2598,6 +2635,12 @@
   function getDisplayedWindows() {
     if (currentWindowDisplayMode === "best") return currentBestWindows;
     if (currentWindowDisplayMode === "worst") return currentWorstWindows;
+    if (currentWindowDisplayMode === "both") {
+      return [
+        ...currentBestWindows.map(window => ({ ...window, displayMode: "best" })),
+        ...currentWorstWindows.map(window => ({ ...window, displayMode: "worst" }))
+      ];
+    }
     return [];
   }
 
@@ -2643,7 +2686,10 @@
     bestWindowsSummary.querySelectorAll(".best-window-card[data-window-type]")
       .forEach(card => {
         const type = card.dataset.windowType;
-        const isVisible = windowOverlayVisibility[type] !== false;
+        const isVisible = isWindowOverlayVisible({
+          type,
+          displayMode: card.dataset.windowMode
+        }, currentWindowDisplayMode);
         const title = card.querySelector(".best-window-card-title")?.textContent.trim()
           || "Time window";
 
@@ -2668,10 +2714,17 @@
       });
   }
 
-  function toggleWindowOverlay(type) {
-    if (!Object.prototype.hasOwnProperty.call(windowOverlayVisibility, type)) return;
+  function toggleWindowOverlay(type, displayMode = currentWindowDisplayMode) {
+    if (currentWindowDisplayMode === "both") {
+      const mode = displayMode === "worst" ? "worst" : "best";
+      const visibility = getBothWindowOverlayVisibility()[mode];
+      if (!Object.prototype.hasOwnProperty.call(visibility, type)) return;
+      visibility[type] = !visibility[type];
+    } else {
+      if (!Object.prototype.hasOwnProperty.call(windowOverlayVisibility, type)) return;
+      windowOverlayVisibility[type] = !windowOverlayVisibility[type];
+    }
 
-    windowOverlayVisibility[type] = !windowOverlayVisibility[type];
     updateWindowCardStates();
 
     // Update only the Plotly shapes; no forecast or spot-price data is fetched.
@@ -2687,7 +2740,7 @@
   }
 
   function setWindowDisplayMode(mode) {
-    if (!["best", "worst", "off"].includes(mode)) return;
+    if (!["best", "worst", "both", "off"].includes(mode)) return;
 
     currentWindowDisplayMode = mode;
     updateWindowDisplayControl();
@@ -2821,7 +2874,9 @@
 
     const heading = document.createElement("h3");
     heading.className = "best-windows-heading";
-    const headingLabel = mode === "worst" ? "Worst" : "Best";
+    const headingLabel = mode === "both"
+      ? "Best and worst"
+      : mode === "worst" ? "Worst" : "Best";
     heading.textContent = `${headingLabel} upcoming ${bestBinLength}-hour time windows`;
     bestWindowsSummary.appendChild(heading);
 
@@ -2829,7 +2884,8 @@
     const seriesUnit = getLangVer(payload.metadata?.unit);
 
     windows.forEach(window => {
-      const style = getWindowStyle(window.type, mode);
+      const windowMode = window.displayMode || mode;
+      const style = getWindowStyle(window.type, windowMode);
 
       if (!style || !window.bin) return;
 
@@ -2838,7 +2894,8 @@
       card.type = "button";
       card.className = "best-window-card";
       card.dataset.windowType = window.type;
-      card.addEventListener("click", () => toggleWindowOverlay(window.type));
+      card.dataset.windowMode = windowMode;
+      card.addEventListener("click", () => toggleWindowOverlay(window.type, windowMode));
 
       // Match the corresponding chart highlight.
       card.style.setProperty("--best-window-color", style.color);
@@ -2858,17 +2915,17 @@
       average.className = "best-window-card-average";
 
       if (window.type === "series") {
-        title.textContent = mode === "worst" ? metric.worstTitle : metric.bestTitle;
+        title.textContent = windowMode === "worst" ? metric.worstTitle : metric.bestTitle;
         card.style.setProperty("--best-window-border", "dashed");
       }
 
       if (window.type === "spot") {
-        title.textContent = mode === "worst" ? "Highest spot prices" : "Lowest spot prices";
+        title.textContent = windowMode === "worst" ? "Highest spot prices" : "Lowest spot prices";
         card.style.setProperty("--best-window-border", "dashed");
       }
 
       if (window.type === "combined") {
-        title.textContent = mode === "worst"
+        title.textContent = windowMode === "worst"
           ? metric.worstCombinedTitle
           : metric.bestCombinedTitle;
       }
