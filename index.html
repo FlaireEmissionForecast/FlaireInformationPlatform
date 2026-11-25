@@ -180,13 +180,17 @@
       width: 100%;
       max-width: 1000px;
       display: flex;
-      flex-direction: column;
+      flex-flow: row wrap;
+      justify-content: center;
       align-items: center;
-      gap: 6px;
+      column-gap: 12px;
+      row-gap: 6px;
       margin: -4px auto 12px;
     }
 
     .window-display-label {
+      flex: 0 0 auto;
+      white-space: nowrap;
       color: #66727c;
       font-size: 12px;
       font-weight: 600;
@@ -196,6 +200,7 @@
 
     .window-display-segmented {
       display: inline-flex;
+      flex: 0 0 auto;
       align-items: center;
       gap: 3px;
       padding: 3px;
@@ -205,8 +210,8 @@
     }
 
     .window-display-option {
-      min-width: 78px;
-      padding: 7px 16px;
+      min-width: 72px;
+      padding: 5px 16px;
       border: 0;
       border-radius: 999px;
       background: transparent;
@@ -254,8 +259,8 @@
       }
 
       .window-display-option {
-        min-width: 72px;
-        padding: 7px 13px;
+        min-width: 56px;
+        padding: 2px 12px;
       }
     }
 
@@ -867,7 +872,7 @@
   </div>
 
   <div class="window-display-control">
-    <span class="window-display-label">Window type</span>
+    <span class="window-display-label">Scheduling windows</span>
     <div class="window-display-segmented" role="group" aria-label="Window display mode">
       <button type="button" class="window-display-option" data-window-mode="best" aria-pressed="true">Best</button>
       <button type="button" class="window-display-option" data-window-mode="worst" aria-pressed="false">Worst</button>
@@ -2382,7 +2387,7 @@
         worstTitle: "Highest emissions",
         averageLabel: "Avg. emissions",
         bestCombinedTitle: "Lowest emissions and spot prices",
-        worstCombinedTitle: "Highest emissions and highest spot prices"
+        worstCombinedTitle: "Highest emissions and spot prices"
       };
     }
 
