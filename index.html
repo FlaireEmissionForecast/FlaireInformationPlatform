@@ -2307,16 +2307,30 @@
     return true;
   }
 
-  function getSortedBins(payload, binLen, higherIsBetter = false) {
+  function getSortedBins(payload, binLen, timeRange = null, higherIsBetter = false) {
     if (!payload?.data || !Number.isInteger(binLen) || binLen < 1) return [];
 
     const data = payload.data;
     const forecast = data.forecast || {};
     const history = data.history || {};
 
-    // Primarily use forecast data, but if it is not available use history data.
-    const sortData = isEmpty(forecast) ? history : forecast;
-    const sortedEntries = sortEntriesByDate(sortData);
+    // When a time range is supplied, combine history and forecast.
+    // Otherwise select from history or forecast data
+    const sortData = timeRange
+      ? { ...history, ...forecast }
+      : (isEmpty(forecast) ? history : forecast);
+
+    // Filter out timestamps which do not belong to the current forecast time range
+    const sortedEntries = sortEntriesByDate(sortData).filter(([timestamp]) => {
+      if (!timeRange) return true;
+
+      // Split UTC offset away, for consistency with getForecastTimeRange
+      const localTime = timestamp.split("+")[0];
+
+      return localTime >= timeRange.startTime &&
+             localTime <= timeRange.endTime;
+    });
+
     const avgBins = [];
 
     for (let i = 0; i <= sortedEntries.length - binLen; i++) {
@@ -2355,6 +2369,7 @@
       "domestic_production_share"
     ];
 
+    const forecastRange = getForecastTimeRange(payload, true);
     const higherIsBetter = higherIsBetterTypes.includes(currentSeriesKey);
     const seriesBins = getSortedBins(payload, binLength, higherIsBetter);
     const windows = [];
@@ -2362,7 +2377,7 @@
 
     // Spot averages are only available when the spot overlay is active.
     if (includeSpotWindows && currentSpotPricePayload) {
-      const spotBins = getSortedBins(currentSpotPricePayload, binLength, false);
+      const spotBins = getSortedBins(currentSpotPricePayload, binLength, forecastRange, false);
 
       // Index both datasets by their exact time-window boundaries.
       const seriesMap = new Map(
