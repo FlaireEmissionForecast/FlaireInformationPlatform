@@ -175,6 +175,90 @@
       text-align: center;
     }
 
+    /* Best / worst window display control: stays outside the mobile drawer. */
+    .window-display-control {
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      margin: -4px auto 12px;
+    }
+
+    .window-display-label {
+      color: #66727c;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .window-display-segmented {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px;
+      border: 1px solid #d7dce2;
+      border-radius: 999px;
+      background: #e9edf2;
+    }
+
+    .window-display-option {
+      min-width: 78px;
+      padding: 7px 16px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #3f4852;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.18s, color 0.18s, box-shadow 0.18s;
+    }
+
+    .window-display-option[aria-pressed="true"] {
+      background: #4a90e2;
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    }
+
+    .window-display-option:focus-visible {
+      outline: 3px solid #4a90e2;
+      outline-offset: 2px;
+    }
+
+    body.dark-theme .window-display-label {
+      color: #aab5c0;
+    }
+
+    body.dark-theme .window-display-segmented {
+      border-color: #4b5560;
+      background: #252b33;
+    }
+
+    body.dark-theme .window-display-option {
+      color: #e5eaf0;
+    }
+
+    body.dark-theme .window-display-option[aria-pressed="true"] {
+      background: #4a90e2;
+      color: #fff;
+    }
+
+    @media (max-width: 480px) {
+      .window-display-control {
+        margin-top: -2px;
+        margin-bottom: 10px;
+      }
+
+      .window-display-option {
+        min-width: 72px;
+        padding: 7px 13px;
+      }
+    }
+
     #chart-container {
       --spot-extra-height: 0px;
 
@@ -782,6 +866,15 @@
     <h2 id="chart-title"></h2>
   </div>
 
+  <div class="window-display-control">
+    <span class="window-display-label">Window type</span>
+    <div class="window-display-segmented" role="group" aria-label="Window display mode">
+      <button type="button" class="window-display-option" data-window-mode="best" aria-pressed="true">Best</button>
+      <button type="button" class="window-display-option" data-window-mode="worst" aria-pressed="false">Worst</button>
+      <button type="button" class="window-display-option" data-window-mode="off" aria-pressed="false">Off</button>
+    </div>
+  </div>
+
   <div id="chart-container">
     <div id="chart" style="width:100%;height:100%;"></div>
 
@@ -793,7 +886,7 @@
     <div id="spotprice-loading" aria-live="polite">Loading spot price data</div>
   </div>
 
-  <div id="best-windows-summary" aria-label="Best time windows"></div>
+  <div id="best-windows-summary" aria-label="Time windows"></div>
 
   <div class="chart-type-toggle">
     <span class="toggle-pair chart-type-toggle">
@@ -851,6 +944,9 @@
   const controlsToggle = document.getElementById('controls-toggle');
   const mobileControlsMedia = window.matchMedia("(max-width: 700px)");
   const bestWindowsSummary = document.getElementById("best-windows-summary");
+  const windowDisplayButtons = Array.from(
+    document.querySelectorAll("[data-window-mode]")
+  );
   const spotPriceToggle = document.getElementById("spotprice-toggle");
   const yAutoscaleToggle = document.getElementById("yAutoscaleToggle");
   const chartTypeToggle = document.getElementById("chart-type-toggle");
@@ -888,6 +984,12 @@
 
   // Read the selected best-window duration (defaults to 3 hours).
   let bestBinLength = Number(bestWindowLengthSelect.value) || 3;
+
+  // Window display is independent of forecast loading and defaults to Best.
+  let currentWindowDisplayMode = "best";
+  let currentBestWindows = [];
+  let currentWorstWindows = [];
+  let currentWindowForecastStart = null;
 
   // Default to light theme
   let currentTheme = 'light';
@@ -1039,13 +1141,13 @@
     }
   };
 
-  function buildBestWindowShapes(bestWindows = []) {
+  function buildBestWindowShapes(windows = []) {
     const shapes = [];
-    const validWindows = bestWindows.filter(window =>
+    const validWindows = windows.filter(window =>
       window?.bin?.startTime && window?.bin?.endTime
     );
 
-    // Draw the translucent windows first so the data traces remain readable.
+    // Draw translucent areas first so the data traces remain readable.
     validWindows.forEach(window => {
       const style = BEST_WINDOW_STYLES[window.type];
       if (!style) return;
@@ -1064,8 +1166,7 @@
       });
     });
 
-    // Each window has a full-height start and end line. The combined window
-    // uses a stronger color and thicker solid boundaries to stand out.
+    // Each window has full-height start and end boundaries.
     validWindows.forEach(window => {
       const style = BEST_WINDOW_STYLES[window.type];
       if (!style) return;
@@ -1088,6 +1189,31 @@
       });
     });
 
+    return shapes;
+  }
+
+  function buildChartShapes(forecastStart, windows = []) {
+    const theme = getMainChartTheme();
+    const shapes = [];
+
+    if (forecastStart) {
+      // Keep the forecast-start line first; theme updates rebuild it as well.
+      shapes.push({
+        type: "line",
+        x0: forecastStart,
+        x1: forecastStart,
+        yref: "paper",
+        y0: 0,
+        y1: 1,
+        line: {
+          dash: "dash",
+          width: 1,
+          color: theme.fit
+        }
+      });
+    }
+
+    shapes.push(...buildBestWindowShapes(windows));
     return shapes;
   }
 
@@ -1114,25 +1240,7 @@
   function buildLayout(forecastStart, payloadUnit, showSpotAxis = false, bestWindows = []) {
     const theme = getMainChartTheme();
 
-    const shapes = [];
-    if (forecastStart) {
-      // Keep the forecast-start line first; toggleTheme updates shapes[0].
-      shapes.push({
-        type: 'line',
-        x0: forecastStart,
-        x1: forecastStart,
-        yref: 'paper',
-        y0: 0,
-        y1: 1,
-        line: {
-          dash: 'dash',
-          width: 1,
-          color: theme.fit
-        }
-      });
-    }
-
-    shapes.push(...buildBestWindowShapes(bestWindows));
+    const shapes = buildChartShapes(forecastStart, bestWindows);
 
     return {
       template: theme.template,
@@ -1690,14 +1798,17 @@
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
-      // Highlight the best series window, plus spot and combined windows
-      // only when spot prices are actually displayed.
-      const bestWindows = getBestTimeWindows(payload, bestBinLength, showSpotPrices);
-      renderBestWindowsSummary(bestWindows, payload);
-      traces.push(...makeBestWindowLegendTraces(bestWindows));
+      // Calculate both ranking extremes once; the display control only changes
+      // which already-calculated windows are rendered.
+      currentWindowForecastStart = forecastStart;
+      currentBestWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "best");
+      currentWorstWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "worst");
+      const displayedWindows = getDisplayedWindows();
+      renderBestWindowsSummary(displayedWindows, payload, currentWindowDisplayMode);
+      traces.push(...makeBestWindowLegendTraces(displayedWindows));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, bestWindows);
+      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, displayedWindows);
       const config = { 
         responsive: true, 
         displaylogo: false, 
@@ -1748,14 +1859,17 @@
       document.getElementById("chart-title").textContent = title;
       document.getElementById("chart-container").classList.toggle("has-spotprices", showSpotPrices);
 
-      // Highlight the best series window, plus spot and combined windows
-      // only when spot prices are actually displayed.
-      const bestWindows = getBestTimeWindows(payload, bestBinLength, showSpotPrices);
-      renderBestWindowsSummary(bestWindows, payload);
-      traces.push(...makeBestWindowLegendTraces(bestWindows));
+      // Calculate both ranking extremes once; the display control only changes
+      // which already-calculated windows are rendered.
+      currentWindowForecastStart = forecastStart;
+      currentBestWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "best");
+      currentWorstWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "worst");
+      const displayedWindows = getDisplayedWindows();
+      renderBestWindowsSummary(displayedWindows, payload, currentWindowDisplayMode);
+      traces.push(...makeBestWindowLegendTraces(displayedWindows));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, bestWindows);
+      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, displayedWindows);
       const config = { 
         responsive: true, 
         displaylogo: false, 
@@ -1808,8 +1922,11 @@
       updates["xaxis.spikecolor"] = theme.fit;
     }
 
-    if (chartDiv.layout?.shapes?.length) {
-      updates["shapes[0].line.color"] = theme.fit;
+    if (chartDiv.layout) {
+      updates.shapes = buildChartShapes(
+        currentWindowForecastStart,
+        getDisplayedWindows()
+      );
     }
 
     Plotly.relayout(chartDiv, updates);
@@ -2039,7 +2156,7 @@
     return `${bin.startTime}_${bin.endTime}`;
   }
 
-  function getBestTimeWindows(payload, binLength, includeSpotWindows = false) {
+  function getTimeWindows(payload, binLength, includeSpotWindows = false, mode = "best") {
     // Only these two series are higher-is-better.
     const higherIsBetterTypes = [
       "renew_production_share",
@@ -2048,171 +2165,237 @@
 
     const higherIsBetter = higherIsBetterTypes.includes(currentSeriesKey);
     const seriesBins = getSortedBins(payload, binLength, higherIsBetter);
-    const bestWindows = [];
+    const windows = [];
+    const worst = mode === "worst";
 
     // Spot averages are only available when the spot overlay is active.
     if (includeSpotWindows && currentSpotPricePayload) {
       const spotBins = getSortedBins(currentSpotPricePayload, binLength, false);
 
-      // Index both datasets by their time-window boundaries.
+      // Index both datasets by their exact time-window boundaries.
       const seriesMap = new Map(
         seriesBins.map(bin => [getWindowKey(bin), bin])
       );
-
       const spotMap = new Map(
         spotBins.map(bin => [getWindowKey(bin), bin])
       );
 
-      // Find the best series window that also has matching spot data.
-      const bestSeriesBin = seriesBins.find(bin =>
-        spotMap.has(getWindowKey(bin))
+      // Select the best (first) or worst (last) eligible series window.
+      const seriesBin = selectRankedBin(
+        seriesBins,
+        bin => spotMap.has(getWindowKey(bin)),
+        worst
       );
 
-      if (bestSeriesBin) {
-        const matchingSpotBin = spotMap.get(getWindowKey(bestSeriesBin));
-
-        bestWindows.push({
+      if (seriesBin) {
+        const matchingSpotBin = spotMap.get(getWindowKey(seriesBin));
+        windows.push({
           type: "series",
           bin: {
-            ...bestSeriesBin,
-            seriesAvg: bestSeriesBin.average,
+            ...seriesBin,
+            seriesAvg: seriesBin.average,
             spotAvg: matchingSpotBin.average
           }
         });
       }
 
-      // Find the best spot window that also has matching series data.
-      const bestSpotBin = spotBins.find(bin =>
-        seriesMap.has(getWindowKey(bin))
+      // Select the best (first) or worst (last) eligible spot-price window.
+      const spotBin = selectRankedBin(
+        spotBins,
+        bin => seriesMap.has(getWindowKey(bin)),
+        worst
       );
 
-      if (bestSpotBin) {
-        const matchingSeriesBin = seriesMap.get(getWindowKey(bestSpotBin));
-
-        bestWindows.push({
+      if (spotBin) {
+        const matchingSeriesBin = seriesMap.get(getWindowKey(spotBin));
+        windows.push({
           type: "spot",
           bin: {
-            ...bestSpotBin,
+            ...spotBin,
             seriesAvg: matchingSeriesBin.average,
-            spotAvg: bestSpotBin.average
+            spotAvg: spotBin.average
           }
         });
       }
 
-      // Find the best combined time window.
-      const bestCombinedBin = findBestCombinedBin(
+      // Combined ranking uses the sum of the series and spot ranks.
+      // Since both input arrays are sorted best-to-worst, the final combined
+      // candidate is the worst-ranked shared time window.
+      const combinedBin = findCombinedBinAtExtreme(
         seriesBins,
         spotBins,
-        "spot"
+        "spot",
+        worst
       );
 
-      if (bestCombinedBin) {
-        bestWindows.push({
+      if (combinedBin) {
+        windows.push({
           type: "combined",
-          bin: bestCombinedBin
+          bin: combinedBin
         });
       }
-    } else if (seriesBins[0]) {
-      // Without spot data, only the series average is available.
-      bestWindows.push({
-        type: "series",
-        bin: {
-          ...seriesBins[0],
-          seriesAvg: seriesBins[0].average,
-          spotAvg: null
-        }
-      });
+    } else {
+      // Without spot data, the series ranking alone determines the extremes.
+      const seriesBin = seriesBins.length
+        ? seriesBins[worst ? seriesBins.length - 1 : 0]
+        : null;
+
+      if (seriesBin) {
+        windows.push({
+          type: "series",
+          bin: {
+            ...seriesBin,
+            seriesAvg: seriesBin.average,
+            spotAvg: null
+          }
+        });
+      }
     }
 
-    // If an individual best window exactly matches the best combined window,
-    // keep only the combined entry. This shared list drives both the summary
-    // cards and chart highlights, so the duplicate area/boundaries are omitted
-    // from the chart as well.
-    const combinedWindow = bestWindows.find(window => window.type === "combined");
-    if (!combinedWindow) return bestWindows;
+    // When an individual window has exactly the same boundaries as the
+    // combined window, retain only the combined entry for both cards and shapes.
+    const combinedWindow = windows.find(window => window.type === "combined");
+    if (!combinedWindow) return windows;
 
     const combinedWindowKey = getWindowKey(combinedWindow.bin);
-    return bestWindows.filter(window =>
+    return windows.filter(window =>
       !["series", "spot"].includes(window.type) ||
       getWindowKey(window.bin) !== combinedWindowKey
     );
   }
 
-  function findBestCombinedBin(seriesBins, spotBins, tieBreaker = "spot") {
-      // Assing a key for each object for fast lookup
-      const seriesMap = new Map(
-        seriesBins.map(bin => [getWindowKey(bin), bin])
-      );
+  function selectRankedBin(bins, predicate, worst = false) {
+    if (worst) {
+      for (let index = bins.length - 1; index >= 0; index--) {
+        if (predicate(bins[index])) return bins[index];
+      }
+      return null;
+    }
 
-      const combBins = [];
-
-      spotBins.forEach(spObj => {
-          const seObj = seriesMap.get(getWindowKey(spObj));
-
-          if (seObj) {
-              combBins.push({
-                  startTime: seObj.startTime,
-                  endTime: seObj.endTime,
-                  seriesAvg: seObj.average,
-                  spotAvg: spObj.average,
-                  binRank: seObj.rank + spObj.rank,
-                  // Required for breaking rank ties
-                  seriesRank: seObj.rank,
-                  spotRank: spObj.rank
-              });
-          }
-      });
-
-      // Sort by combined rank, then use the selected tie-breaker if needed
-      combBins.sort((a, b) => {
-          if (a.binRank !== b.binRank) {
-              return a.binRank - b.binRank;
-          }
-
-          if (tieBreaker === "spot") {
-              return a.spotRank - b.spotRank;
-          }
-
-          return a.seriesRank - b.seriesRank;
-      });
-
-      // Return the "win-win" time window with the lowest combined rank
-      return combBins[0] ?? null;
+    return bins.find(predicate) ?? null;
   }
 
-  function getBestWindowMetric(payload) {
+  function findCombinedBinAtExtreme(seriesBins, spotBins, tieBreaker = "spot", worst = false) {
+    const seriesMap = new Map(
+      seriesBins.map(bin => [getWindowKey(bin), bin])
+    );
+    const combinedBins = [];
 
+    spotBins.forEach(spotBin => {
+      const seriesBin = seriesMap.get(getWindowKey(spotBin));
+      if (!seriesBin) return;
+
+      combinedBins.push({
+        startTime: seriesBin.startTime,
+        endTime: seriesBin.endTime,
+        seriesAvg: seriesBin.average,
+        spotAvg: spotBin.average,
+        binRank: seriesBin.rank + spotBin.rank,
+        seriesRank: seriesBin.rank,
+        spotRank: spotBin.rank
+      });
+    });
+
+    // Ascending rank sums put the best combination first and worst last.
+    // The same tie-break ordering is retained so selecting the final entry
+    // also favours the highest spot rank when combined scores are tied.
+    combinedBins.sort((a, b) => {
+      if (a.binRank !== b.binRank) {
+        return a.binRank - b.binRank;
+      }
+
+      if (tieBreaker === "spot") {
+        return a.spotRank - b.spotRank;
+      }
+
+      return a.seriesRank - b.seriesRank;
+    });
+
+    if (!combinedBins.length) return null;
+    return combinedBins[worst ? combinedBins.length - 1 : 0];
+  }
+
+  function getDisplayedWindows() {
+    if (currentWindowDisplayMode === "best") return currentBestWindows;
+    if (currentWindowDisplayMode === "worst") return currentWorstWindows;
+    return [];
+  }
+
+  function updateWindowDisplayControl() {
+    windowDisplayButtons.forEach(button => {
+      const isActive = button.dataset.windowMode === currentWindowDisplayMode;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    });
+  }
+
+  function setWindowDisplayMode(mode) {
+    if (!["best", "worst", "off"].includes(mode)) return;
+
+    currentWindowDisplayMode = mode;
+    updateWindowDisplayControl();
+
+    if (!currentForecastPayload) {
+      bestWindowsSummary.replaceChildren();
+      return;
+    }
+
+    const displayedWindows = getDisplayedWindows();
+    renderBestWindowsSummary(
+      displayedWindows,
+      currentForecastPayload,
+      currentWindowDisplayMode
+    );
+
+    // Redraw only the layout shapes; changing the mode never reloads data.
+    if (chartDiv.layout && chartDiv.data && typeof Plotly !== "undefined") {
+      Plotly.relayout(chartDiv, {
+        shapes: buildChartShapes(currentWindowForecastStart, displayedWindows)
+      });
+    }
+  }
+
+  function getWindowMetric(payload) {
     if (currentSeriesKey === "renew_production_share") {
       return {
-        title: "Highest renewable share",
+        bestTitle: "Highest renewable share",
+        worstTitle: "Lowest renewable share",
         averageLabel: "Avg. renewable share",
-        combinedTitle: "Highest renewable share and lowest spot prices"
+        bestCombinedTitle: "Highest renewable share and lowest spot prices",
+        worstCombinedTitle: "Lowest renewable share and highest spot prices"
       };
     }
 
     if (currentSeriesKey === "domestic_production_share") {
       return {
-        title: "Highest domestic share",
+        bestTitle: "Highest domestic share",
+        worstTitle: "Lowest domestic share",
         averageLabel: "Avg. domestic share",
-        combinedTitle: "Highest domestic share and lowest spot prices"
+        bestCombinedTitle: "Highest domestic share and lowest spot prices",
+        worstCombinedTitle: "Lowest domestic share and highest spot prices"
       };
     }
 
     if (currentSeriesKey === "consumption_emissions") {
       return {
-        title: "Lowest emissions",
+        bestTitle: "Lowest emissions",
+        worstTitle: "Highest emissions",
         averageLabel: "Avg. emissions",
-        combinedTitle: "Lowest emissions and spot prices"
+        bestCombinedTitle: "Lowest emissions and spot prices",
+        worstCombinedTitle: "Highest emissions and highest spot prices"
       };
     }
 
-    seriesName = getLangVer(payload?.metadata?.name).trim();
+    const seriesName = getLangVer(payload?.metadata?.name).trim();
     const fallbackName = seriesName || "Series values";
+    const lowerName = fallbackName.toLowerCase();
 
     return {
-      title: `Lowest ${fallbackName.toLowerCase()}`,
+      bestTitle: `Lowest ${lowerName}`,
+      worstTitle: `Highest ${lowerName}`,
       averageLabel: fallbackName,
-      combinedTitle: `Lowest ${fallbackName.toLowerCase()} and spot prices`
+      bestCombinedTitle: `Lowest ${lowerName} and spot prices`,
+      worstCombinedTitle: `Highest ${lowerName} and highest spot prices`
     };
   }
 
@@ -2270,20 +2453,21 @@
     element.appendChild(strong);
   }
 
-  function renderBestWindowsSummary(bestWindows = [], payload = {}) {
+  function renderBestWindowsSummary(windows = [], payload = {}, mode = "best") {
     bestWindowsSummary.replaceChildren();
 
-    if (!bestWindows.length) return;
+    if (!windows.length || mode === "off") return;
 
     const heading = document.createElement("h3");
     heading.className = "best-windows-heading";
-    heading.textContent = `Best upcoming ${bestBinLength}-hour time windows`;
+    const headingLabel = mode === "worst" ? "Worst" : "Best";
+    heading.textContent = `${headingLabel} upcoming ${bestBinLength}-hour time windows`;
     bestWindowsSummary.appendChild(heading);
 
-    const metric = getBestWindowMetric(payload);
+    const metric = getWindowMetric(payload);
     const seriesUnit = getLangVer(payload.metadata?.unit);
 
-    bestWindows.forEach(window => {
+    windows.forEach(window => {
       const style = BEST_WINDOW_STYLES[window.type];
 
       if (!style || !window.bin) return;
@@ -2309,15 +2493,17 @@
       average.className = "best-window-card-average";
 
       if (window.type === "series") {
-        title.textContent = metric.title;
+        title.textContent = mode === "worst" ? metric.worstTitle : metric.bestTitle;
       }
 
       if (window.type === "spot") {
-        title.textContent = "Lowest spot prices";
+        title.textContent = mode === "worst" ? "Highest spot prices" : "Lowest spot prices";
       }
 
       if (window.type === "combined") {
-        title.textContent = metric.combinedTitle;
+        title.textContent = mode === "worst"
+          ? metric.worstCombinedTitle
+          : metric.bestCombinedTitle;
       }
 
       appendBoldAverage(
@@ -2511,6 +2697,13 @@
   }
 
   // --- Event Listeners ---
+  windowDisplayButtons.forEach(button => {
+    button.addEventListener("click", () => {
+      setWindowDisplayMode(button.dataset.windowMode);
+    });
+  });
+  updateWindowDisplayControl();
+
   calculateStatisticsButton.addEventListener("click", calculateAndShowStatistics);
 
   loadButton.addEventListener('click', () => {
