@@ -311,7 +311,7 @@
       min-width: 0;
       box-sizing: border-box;
       padding: 9px 9px;
-      border: 1.5px solid var(--best-window-color);
+      border: 2px var(--best-window-border, solid) var(--best-window-color);
       border-radius: 8px;
       background-color: var(--best-window-fill);
       color: inherit;
@@ -772,6 +772,10 @@
         line-height: 1.2;
         text-align: center;
       }
+
+      .best-window-card {
+        border: 1.5px var(--best-window-border, solid) var(--best-window-color);
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1125,8 +1129,32 @@
   const BEST_WINDOW_STYLES = {
     series: {
       label: "series",
-      color: "rgb(37, 99, 225)",       // blue
-      fill: "rgba(37, 99, 225, 0.1)",
+      color: "rgb(40, 87, 213)",       // royal blue
+      fill: "rgba(40, 87, 213, 0.10)",
+      lineWidth: 1.5,
+      lineDash: "dot"
+    },
+    spot: {
+      label: "spot",
+      color: "rgb(0, 150, 160)",       // turquoise
+      fill: "rgba(0, 150, 160, 0.10)",
+      lineWidth: 1.5,
+      lineDash: "dot"
+    },
+    combined: {
+      label: "combined",
+      color: "rgb(25, 175, 55)",      // emerald green
+      fill: "rgba(25, 175, 55, 0.22)",
+      lineWidth: 2,
+      lineDash: "solid"
+    }
+  };
+
+  const WORST_WINDOW_STYLES = {
+    series: {
+      label: "series",
+      color: "rgb(100, 116, 139)",      // slate gray
+      fill: "rgba(100, 116, 139, 0.14)",
       lineWidth: 1.5,
       lineDash: "dot"
     },
@@ -1139,14 +1167,19 @@
     },
     combined: {
       label: "combined",
-      color: "rgb(22, 163, 74)",      // green
-      fill: "rgba(22, 163, 74, 0.20)",
+      color: "rgb(225, 38, 38)",      // red
+      fill: "rgba(225, 38, 38, 0.22)",
       lineWidth: 2,
       lineDash: "solid"
     }
   };
 
-  function buildBestWindowShapes(windows = []) {
+  function getWindowStyle(type, mode = "best") {
+    const styles = mode === "worst" ? WORST_WINDOW_STYLES : BEST_WINDOW_STYLES;
+    return styles[type] || null;
+  }
+
+  function buildBestWindowShapes(windows = [], mode = "best") {
     const shapes = [];
     const validWindows = windows.filter(window =>
       window?.bin?.startTime && window?.bin?.endTime
@@ -1154,7 +1187,7 @@
 
     // Draw translucent areas first so the data traces remain readable.
     validWindows.forEach(window => {
-      const style = BEST_WINDOW_STYLES[window.type];
+      const style = getWindowStyle(window.type, mode);
       if (!style) return;
 
       shapes.push({
@@ -1173,7 +1206,7 @@
 
     // Each window has full-height start and end boundaries.
     validWindows.forEach(window => {
-      const style = BEST_WINDOW_STYLES[window.type];
+      const style = getWindowStyle(window.type, mode);
       if (!style) return;
 
       [window.bin.startTime, window.bin.endTime].forEach(timestamp => {
@@ -1197,7 +1230,7 @@
     return shapes;
   }
 
-  function buildChartShapes(forecastStart, windows = []) {
+  function buildChartShapes(forecastStart, windows = [], mode = "best") {
     const theme = getMainChartTheme();
     const shapes = [];
 
@@ -1218,13 +1251,13 @@
       });
     }
 
-    shapes.push(...buildBestWindowShapes(windows));
+    shapes.push(...buildBestWindowShapes(windows, mode));
     return shapes;
   }
 
-  function makeBestWindowLegendTraces(bestWindows = []) {
-    return bestWindows.map((window, index) => {
-      const style = BEST_WINDOW_STYLES[window.type];
+  function makeBestWindowLegendTraces(windows = [], mode = "best") {
+    return windows.map((window, index) => {
+      const style = getWindowStyle(window.type, mode);
       if (!style) return null;
 
       return {
@@ -1233,7 +1266,7 @@
         y: [null],
         type: "scatter",
         mode: "lines",
-        name: `Best ${style.label}`,
+        name: `${mode === "worst" ? "Worst" : "Best"} ${style.label}`,
         line: { color: style.color, width: 4 },
         legendrank: 10 + index,
         showlegend: false,
@@ -1242,10 +1275,10 @@
     }).filter(Boolean);
   }
 
-  function buildLayout(forecastStart, payloadUnit, showSpotAxis = false, bestWindows = []) {
+  function buildLayout(forecastStart, payloadUnit, showSpotAxis = false, windows = [], windowMode = "best") {
     const theme = getMainChartTheme();
 
-    const shapes = buildChartShapes(forecastStart, bestWindows);
+    const shapes = buildChartShapes(forecastStart, windows, windowMode);
 
     return {
       template: theme.template,
@@ -1810,10 +1843,16 @@
       currentWorstWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "worst");
       const displayedWindows = getDisplayedWindows();
       renderBestWindowsSummary(displayedWindows, payload, currentWindowDisplayMode);
-      traces.push(...makeBestWindowLegendTraces(displayedWindows));
+      traces.push(...makeBestWindowLegendTraces(displayedWindows, currentWindowDisplayMode));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, displayedWindows);
+      const layout = buildLayout(
+        forecastStart,
+        payloadUnit,
+        showSpotPrices,
+        displayedWindows,
+        currentWindowDisplayMode
+      );
       const config = { 
         responsive: true, 
         displaylogo: false, 
@@ -1871,10 +1910,16 @@
       currentWorstWindows = getTimeWindows(payload, bestBinLength, showSpotPrices, "worst");
       const displayedWindows = getDisplayedWindows();
       renderBestWindowsSummary(displayedWindows, payload, currentWindowDisplayMode);
-      traces.push(...makeBestWindowLegendTraces(displayedWindows));
+      traces.push(...makeBestWindowLegendTraces(displayedWindows, currentWindowDisplayMode));
 
       const payloadUnit = getLangVer(payload.metadata?.unit);
-      const layout = buildLayout(forecastStart, payloadUnit, showSpotPrices, displayedWindows);
+      const layout = buildLayout(
+        forecastStart,
+        payloadUnit,
+        showSpotPrices,
+        displayedWindows,
+        currentWindowDisplayMode
+      );
       const config = { 
         responsive: true, 
         displaylogo: false, 
@@ -1930,7 +1975,8 @@
     if (chartDiv.layout) {
       updates.shapes = buildChartShapes(
         currentWindowForecastStart,
-        getDisplayedWindows()
+        getDisplayedWindows(),
+        currentWindowDisplayMode
       );
     }
 
@@ -2355,7 +2401,11 @@
     // Redraw only the layout shapes; changing the mode never reloads data.
     if (chartDiv.layout && chartDiv.data && typeof Plotly !== "undefined") {
       Plotly.relayout(chartDiv, {
-        shapes: buildChartShapes(currentWindowForecastStart, displayedWindows)
+        shapes: buildChartShapes(
+          currentWindowForecastStart,
+          displayedWindows,
+          currentWindowDisplayMode
+        )
       });
     }
   }
@@ -2473,7 +2523,7 @@
     const seriesUnit = getLangVer(payload.metadata?.unit);
 
     windows.forEach(window => {
-      const style = BEST_WINDOW_STYLES[window.type];
+      const style = getWindowStyle(window.type, mode);
 
       if (!style || !window.bin) return;
 
@@ -2499,10 +2549,12 @@
 
       if (window.type === "series") {
         title.textContent = mode === "worst" ? metric.worstTitle : metric.bestTitle;
+        card.style.setProperty("--best-window-border", "dashed");
       }
 
       if (window.type === "spot") {
         title.textContent = mode === "worst" ? "Highest spot prices" : "Lowest spot prices";
+        card.style.setProperty("--best-window-border", "dashed");
       }
 
       if (window.type === "combined") {
