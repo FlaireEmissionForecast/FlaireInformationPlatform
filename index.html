@@ -2124,7 +2124,18 @@
       });
     }
 
-    return bestWindows;
+    // If an individual best window exactly matches the best combined window,
+    // keep only the combined entry. This shared list drives both the summary
+    // cards and chart highlights, so the duplicate area/boundaries are omitted
+    // from the chart as well.
+    const combinedWindow = bestWindows.find(window => window.type === "combined");
+    if (!combinedWindow) return bestWindows;
+
+    const combinedWindowKey = getWindowKey(combinedWindow.bin);
+    return bestWindows.filter(window =>
+      !["series", "spot"].includes(window.type) ||
+      getWindowKey(window.bin) !== combinedWindowKey
+    );
   }
 
   function findBestCombinedBin(seriesBins, spotBins, tieBreaker = "spot") {
