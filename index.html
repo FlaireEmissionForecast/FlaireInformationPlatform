@@ -189,9 +189,8 @@
       flex: 0 0 auto;
       align-items: center;
       justify-content: center;
-      width: calc(clamp(24px, var(--heading-fluid) - 8px, 30px));
-      height: calc(clamp(24px, var(--heading-fluid) - 8px, 30px));
-      font-size: calc(clamp(16px, var(--heading-fluid) - 14px, 21px));
+      width: clamp(24px, calc(var(--heading-fluid) - 8px), 30px);
+      height: clamp(24px, calc(var(--heading-fluid) - 8px), 30px);
       flex-shrink: 0;
       margin: 0 0 15px 0;
       padding: 0;
@@ -199,9 +198,13 @@
       border-radius: 50%;
       background: #fff;
       color: #4a90e2;
-      line-height: 1;
       cursor: pointer;
-      transition: transform 0.2s ease;
+    }
+
+    .refresh-icon {
+      width: 65%;
+      height: 65%;
+      display: block;
     }
 
     #refresh-chart-button.is-spinning {
@@ -931,7 +934,21 @@
       id="refresh-chart-button"
       aria-label="Refresh forecast data"
       title="Refresh forecast data"
-    >&#x27f3;</button>
+      >
+      <svg
+        class="refresh-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M20 11a8 8 0 1 0-2.34 5.66"/>
+        <path d="M22 4v7h-7" transform="rotate(25 17.5 7.5)"/>
+      </svg>
+    </button>
   </div>
 
   <div class="window-display-control">
