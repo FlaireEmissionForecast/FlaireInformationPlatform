@@ -435,7 +435,6 @@
       color: #aab5c0;
     }
 
-
     .best-window-card-range,
     .best-window-card-average {
       display: block;
@@ -444,6 +443,18 @@
       line-height: 1.4;
       overflow-wrap: anywhere;
       white-space: pre-line;
+    }
+
+    /* Mobile hint for toggling chart overlays */
+    #window-overlay-hint {
+      display: none;
+      width: 100%;
+      margin: 4px 0 0;
+      text-align: center;
+    }
+
+    body.dark-theme #window-overlay-hint {
+      color: #aab5c0;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -944,6 +955,27 @@
       .best-window-card-status {
         display: none;
       }
+
+      #window-overlay-hint {
+        display: block;
+      }
+
+      .best-window-card:hover {
+        box-shadow: 0 0 4px 2px rgba(0, 0, 0, 0.30);
+      }
+
+      body.dark-theme .best-window-card:hover {
+        box-shadow: 0 0 4px 2px rgba(255, 255, 255, 0.45);
+      }
+
+      /* Keep the hover shadow visible even when an overlay is disabled. */
+      .best-window-card.is-overlay-hidden:hover {
+        box-shadow: 0 0 4px 2px rgba(0, 0, 0, 0.30);
+      }
+
+      body.dark-theme .best-window-card.is-overlay-hidden:hover {
+        box-shadow: 0 0 4px 2px rgba(255, 255, 255, 0.45);
+      }
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1085,6 +1117,10 @@
   </div>
 
   <div id="best-windows-summary" aria-label="Time windows"></div>
+
+  <div id="window-overlay-hint" class="best-window-card-status">
+    Touch to toggle chart overlay visibility
+  </div>
 
   <div class="chart-type-toggle">
     <span class="toggle-pair chart-type-toggle">
@@ -2749,8 +2785,7 @@
           type,
           displayMode: card.dataset.windowMode
         }, currentWindowDisplayMode);
-        const title = card.querySelector(".best-window-card-title")?.textContent.trim()
-          || "Time window";
+        const title = card.querySelector(".best-window-card-title")?.textContent.trim() || "Time window";
 
         card.classList.toggle("is-overlay-hidden", !isVisible);
 
