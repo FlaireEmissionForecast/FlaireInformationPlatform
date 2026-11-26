@@ -1098,9 +1098,9 @@
   <div class="window-display-control">
     <span class="window-display-label">Scheduling windows</span>
     <div class="window-display-segmented" role="group" aria-label="Window display mode">
-      <button type="button" class="window-display-option" data-window-mode="best" aria-pressed="true">Best</button>
+      <button type="button" class="window-display-option" data-window-mode="best" aria-pressed="false">Best</button>
       <button type="button" class="window-display-option" data-window-mode="worst" aria-pressed="false">Worst</button>
-      <button type="button" class="window-display-option" data-window-mode="both" aria-pressed="false">Both</button>
+      <button type="button" class="window-display-option" data-window-mode="both" aria-pressed="true">Both</button>
       <button type="button" class="window-display-option" data-window-mode="off" aria-pressed="false">Off</button>
     </div>
   </div>
@@ -1220,8 +1220,8 @@
   // Read the selected best-window duration (defaults to 3 hours).
   let bestBinLength = Number(bestWindowLengthSelect.value) || 3;
 
-  // Window display is independent of forecast loading and defaults to Best.
-  let currentWindowDisplayMode = "best";
+  // Window display is independent of forecast loading and defaults to both.
+  let currentWindowDisplayMode = "both";
 
   // Each window category controls its own chart overlay. These selections
   // persist when switching Best/Worst, changing chart settings, or loading forecasts.
@@ -1254,23 +1254,23 @@
   let currentTheme = 'light';
 
   function getMainChartTheme() {
-  const isDark = currentTheme === "dark";
+    const isDark = currentTheme === "dark";
 
-  return {
-    template: isDark ? "plotly_dark" : "plotly_white",
+    return {
+      template: isDark ? "plotly_dark" : "plotly_white",
 
-    surface: isDark ? "#1c2229" : "#ffffff",
-    text: isDark ? "#edf2f7" : "#263238",
-    muted: isDark ? "#aab5c0" : "#66727c",
-    grid: isDark ? "#444b54" : "#e5e7eb",
-    fit: isDark ? "#f2f2f2" : "#263238",
-    hoverBg: isDark ? "#252b33" : "#ffffff",
-    hoverBorder: isDark ? "#59636e" : "#d5d9de",
-    hoverText: isDark ? "#edf2f7" : "#263238",
+      surface: isDark ? "#1c2229" : "#ffffff",
+      text: isDark ? "#edf2f7" : "#263238",
+      muted: isDark ? "#aab5c0" : "#66727c",
+      grid: isDark ? "#444b54" : "#e5e7eb",
+      fit: isDark ? "#f2f2f2" : "#263238",
+      hoverBg: isDark ? "#252b33" : "#ffffff",
+      hoverBorder: isDark ? "#59636e" : "#d5d9de",
+      hoverText: isDark ? "#edf2f7" : "#263238",
 
-    history: "rgb(74, 144, 226)",
-    forecast: "rgb(255, 140, 0)"
-    };
+      history: "rgb(74, 144, 226)",
+      forecast: "rgb(255, 140, 0)"
+      };
   }
 
   function setChartLoading(loading, message) {
@@ -1551,7 +1551,7 @@
       xanchor,
       xshift,
       yanchor: "top",
-      font: { size: 10, color: theme.muted },
+      font: { size: 12, color: theme.muted },
       borderpad: 0
     });
 
@@ -1665,10 +1665,7 @@
       },
 
       xaxis: {
-        title: {
-          text: "Time",
-          font: { color: theme.text }
-        },
+        title: { text: "Time" },
         tickfont: { color: theme.muted },
         tickangle: 0,
         tickformat: "%H:%M<br>%d.%m.%y",
@@ -1739,13 +1736,32 @@
     const forecast = data.forecast || {};
     const unit = getLangVer(payload.metadata?.unit) || "";
 
-    const historyEntries = sortEntriesByDate(history)
+    const historyEntries = sortEntriesByDate(history);
     const forecastEntries = sortEntriesByDate(forecast);
 
-    // Connect history and forecast traces by adding first forecast point to history
-    if (historyEntries.length > 0 && forecastEntries.length > 0 && currentChartType == "line") {
-      const firstForecast = forecastEntries[0];
-      historyEntries.push(firstForecast);
+    // Split forecast entries at tomorrow's midnight.
+    const midnight = getForecastMidnight(payload);
+
+    const todayForecastEntries = midnight
+      ? forecastEntries.filter(([timestamp]) =>
+          new Date(timestamp.split("+")[0]) < midnight
+        )
+      : forecastEntries;
+
+    const tomorrowForecastEntries = midnight
+      ? forecastEntries.filter(([timestamp]) =>
+          new Date(timestamp.split("+")[0]) >= midnight
+        )
+      : [];
+
+    // Connect history and forecast traces by adding first forecast point to history.
+    if (historyEntries.length > 0 && forecastEntries.length > 0 && currentChartType === "line") {
+      historyEntries.push(forecastEntries[0]);
+    }
+
+    // Connect today's and tomorrow's and forecast traces by adding first forecast point to history.
+    if (todayForecastEntries.length > 0 && tomorrowForecastEntries.length > 0 && currentChartType === "line") {
+      todayForecastEntries.push(tomorrowForecastEntries[0]);
     }
 
     // Share one scale calculation between the traces and Y-axis layout.
@@ -1770,52 +1786,84 @@
           hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>History</extra>'
         },
         {
-          x: forecastEntries.map(e => e[0]),
-          y: forecastEntries.map(e => e[1] - baseline),
+          x: todayForecastEntries.map(e => e[0]),
+          y: todayForecastEntries.map(e => e[1] - baseline),
           base: baseline,
-          customdata: forecastEntries.map(e => e[1]),
+          customdata: todayForecastEntries.map(e => e[1]),
           type: "bar",
           name: "Forecast",
           legendrank: 2,
           showlegend: true,
+          offsetgroup: "forecast",
           meta: { unit: unit },
           marker: { color: "rgb(255, 150, 30)" },
+          hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>Forecast</extra>'
+        },
+        {
+          x: tomorrowForecastEntries.map(e => e[0]),
+          y: tomorrowForecastEntries.map(e => e[1] - baseline),
+          base: baseline,
+          customdata: tomorrowForecastEntries.map(e => e[1]),
+          type: "bar",
+          name: "Forecast",
+          legendrank: 2,
+          showlegend: false,
+          offsetgroup: "forecast",
+          meta: { unit: unit },
+          marker: { color: "rgb(225, 130, 20)" },
           hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>Forecast</extra>'
         }
       ];
     }
 
-    // If autoscale is disabled, return simple traces without dynamic fill baseline
+    // If autoscale is disabled, return simple traces without dynamic fill baseline.
     if (!yAutoscale) {
-      const historyTrace =  {
-          x: historyEntries.map(e => e[0]),
-          y: historyEntries.map(e => e[1]),
-          type: "scatter",
-          mode: "lines",
-          name: "History",
-          legendrank: 1,
-          showlegend: true,
-          meta: { unit: unit },
-          fill: "tozeroy",
-          fillcolor: "rgba(74,144,226,0.1)",
-          line: { color: "rgb(74,144,226)", width: 3, shape: "spline" },
-          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>'
-        };
-       const forecastTrace = {
-          x: forecastEntries.map(e => e[0]),
-          y: forecastEntries.map(e => e[1]),
-          type: "scatter",
-          mode: "lines",
-          name: "Forecast",
-          legendrank: 2,
-          showlegend: true,
-          meta: { unit: unit },
-          fill: "tozeroy",
-          fillcolor: "rgba(255,140,0,0.1)",
-          line: { color: "rgb(255,140,0)", width: 3, shape: "spline" },
-          hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
-        };
-      return [historyTrace, forecastTrace];
+      const historyTrace = {
+        x: historyEntries.map(e => e[0]),
+        y: historyEntries.map(e => e[1]),
+        type: "scatter",
+        mode: "lines",
+        name: "History",
+        legendrank: 1,
+        showlegend: true,
+        meta: { unit: unit },
+        fill: "tozeroy",
+        fillcolor: "rgba(74,144,226,0.1)",
+        line: { color: "rgb(74,144,226)", width: 3, shape: "spline" },
+        hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>'
+      };
+
+      const forecastTrace = {
+        x: todayForecastEntries.map(e => e[0]),
+        y: todayForecastEntries.map(e => e[1]),
+        type: "scatter",
+        mode: "lines",
+        name: "Forecast",
+        legendrank: 2,
+        showlegend: true,
+        meta: { unit: unit },
+        fill: "tozeroy",
+        fillcolor: "rgba(255,140,0,0.1)",
+        line: { color: "rgb(255,140,0)", width: 3, shape: "spline" },
+        hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
+      };
+
+      const tomorrowForecastTrace = {
+        x: tomorrowForecastEntries.map(e => e[0]),
+        y: tomorrowForecastEntries.map(e => e[1]),
+        type: "scatter",
+        mode: "lines",
+        name: "Forecast",
+        legendrank: 2,
+        showlegend: false,
+        meta: { unit: unit },
+        fill: "tozeroy",
+        fillcolor: "rgba(215, 120, 20,0.1)",
+        line: { color: "rgb(215, 120, 20)", width: 3, shape: "spline" },
+        hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
+      };
+
+      return [historyTrace, forecastTrace, tomorrowForecastTrace];
     }
 
     const historyTrace = {
@@ -1827,33 +1875,53 @@
       legendrank: 1,
       showlegend: true,
       meta: { unit: unit },
-      fill: 'tonexty',
-      fillcolor: 'rgba(74, 144, 226, 0.1)',
+      fill: "tonexty",
+      fillcolor: "rgba(74, 144, 226, 0.1)",
       line: {
-        color: 'rgb(74, 144, 226)', // Light blue
+        color: "rgb(74, 144, 226)",
         width: 3,
-        shape: 'spline'
+        shape: "spline"
       },
       hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>',
     };
 
     const forecastTrace = {
-      x: forecastEntries.map(e => e[0]),
-      y: forecastEntries.map(e => e[1]),
+      x: todayForecastEntries.map(e => e[0]),
+      y: todayForecastEntries.map(e => e[1]),
       type: "scatter",
       mode: "lines",
       name: "Forecast",
       legendrank: 2,
       showlegend: true,
       meta: { unit: unit },
-      fill: 'tonexty',
-      fillcolor: 'rgba(255, 140, 0, 0.1)',
+      fill: "tonexty",
+      fillcolor: "rgba(255, 140, 0, 0.1)",
       line: {
-        color: 'rgb(255, 140, 0)', // strong orange
+        color: "rgb(255, 140, 0)",
         width: 3,
-        shape: 'spline'
+        shape: "spline"
       },
-      marker: { size: 6, symbol: 'circle', color: 'rgb(255, 140, 0)' },
+      marker: { size: 6, symbol: "circle", color: "rgb(255, 140, 0)" },
+      hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>',
+    };
+
+    const tomorrowForecastTrace = {
+      x: tomorrowForecastEntries.map(e => e[0]),
+      y: tomorrowForecastEntries.map(e => e[1]),
+      type: "scatter",
+      mode: "lines",
+      name: "Forecast",
+      legendrank: 2,
+      showlegend: false,
+      meta: { unit: unit },
+      fill: "tonexty",
+      fillcolor: "rgba(215, 120, 20, 0.1)",
+      line: {
+        color: "rgb(215, 120, 20)",
+        width: 3,
+        shape: "spline"
+      },
+      marker: { size: 6, symbol: "circle", color: "rgb(215, 120, 20)" },
       hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>',
     };
 
@@ -1868,8 +1936,8 @@
     };
 
     const forecastBaseline = {
-      x: forecastEntries.map(e => e[0]),
-      y: Array(forecastEntries.length).fill(baseline),
+      x: todayForecastEntries.map(e => e[0]),
+      y: Array(todayForecastEntries.length).fill(baseline),
       type: "scatter",
       mode: "lines",
       showlegend: false,
@@ -1877,7 +1945,24 @@
       hoverinfo: "skip"
     };
 
-    return [historyBaseline, historyTrace, forecastBaseline, forecastTrace];
+    const tomorrowForecastBaseline = {
+      x: tomorrowForecastEntries.map(e => e[0]),
+      y: Array(tomorrowForecastEntries.length).fill(baseline),
+      type: "scatter",
+      mode: "lines",
+      showlegend: false,
+      line: { width: 0 },
+      hoverinfo: "skip"
+    };
+
+    return [
+      historyBaseline,
+      historyTrace,
+      forecastBaseline,
+      forecastTrace,
+      tomorrowForecastBaseline,
+      tomorrowForecastTrace
+    ];
   }
 
   // The API timestamps are already in local time; just remove the timezone offset.
