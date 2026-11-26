@@ -1508,6 +1508,59 @@
     return shapes;
   }
 
+  function getForecastMidnight(payload) {
+    const forecastRange = getForecastTimeRange(payload, true);
+    const startTime = new Date(forecastRange?.startTime);
+    const endTime = new Date(forecastRange?.endTime);
+
+    if (startTime > endTime) { return null; }
+
+    // Set midnight for startTime
+    const midnight = new Date(startTime);
+    midnight.setHours(0, 0, 0, 0);
+
+    // If midnight for startTime is before startTime, add one day
+    if (midnight < startTime) {
+      midnight.setDate(midnight.getDate() + 1);
+    }
+
+    // Return midnight if it is before or at endTime
+    return midnight <= endTime ? midnight : null;
+  }
+
+  function isTimeMidnight(datetime) {
+    const midnight = new Date(datetime);
+    midnight.setHours(0, 0, 0, 0);
+    return datetime.getTime() === midnight.getTime();
+  }
+
+  function buildForecastDayAnnotations(theme) {
+    const forecastStart = getForecastTimeRange(currentForecastPayload, true)?.startTime;
+    const startsAtMidnight = isTimeMidnight(new Date(forecastStart));
+
+    const midnight = getForecastMidnight(currentForecastPayload);
+    if (!midnight) return [];
+
+    const annotation = (text, xanchor, xshift) => ({
+      x: midnight,
+      xref: "x",
+      y: 1.0,
+      yref: "paper",
+      text,
+      showarrow: false,
+      xanchor,
+      xshift,
+      yanchor: "top",
+      font: { size: 10, color: theme.muted },
+      borderpad: 0
+    });
+
+    return [
+      ...(!startsAtMidnight ? [annotation("Today", "right", -5)] : []),
+      annotation("Tomorrow", "left", 5)
+    ];
+  }
+
   function buildChartShapes(forecastStart, windows = [], mode = "best") {
     const theme = getMainChartTheme();
     const shapes = [];
@@ -1530,6 +1583,22 @@
     }
 
     shapes.push(...buildBestWindowShapes(windows, mode));
+
+    const midnight = getForecastMidnight(currentForecastPayload);
+    if (midnight) {
+      shapes.push({
+        type: "line",
+        xref: "x",
+        yref: "paper",
+        x0: midnight,
+        x1: midnight,
+        y0: 0,
+        y1: 1,
+        line: { color: theme.muted, width: 1, dash: "solid" },
+        layer: "above"
+      });
+    }
+
     return shapes;
   }
 
@@ -1556,7 +1625,6 @@
 
   function buildLayout(forecastStart, payloadUnit, showSpotAxis = false, windows = [], windowMode = "best") {
     const theme = getMainChartTheme();
-
     const shapes = buildChartShapes(forecastStart, windows, windowMode);
 
     return {
@@ -1654,7 +1722,8 @@
         b: 40 
       },
       autosize: true,
-      shapes: shapes
+      shapes: shapes,
+      annotations: buildForecastDayAnnotations(theme)
     };
   }
 
@@ -2315,6 +2384,7 @@
         getDisplayedWindows(),
         currentWindowDisplayMode
       );
+      updates.annotations = buildForecastDayAnnotations(theme);
     }
 
     Plotly.relayout(chartDiv, updates);
