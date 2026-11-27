@@ -1544,7 +1544,7 @@
     const annotation = (text, xanchor, xshift) => ({
       x: midnight,
       xref: "x",
-      y: 1.0,
+      y: 1.01,
       yref: "paper",
       text,
       showarrow: false,
@@ -1623,7 +1623,14 @@
     }).filter(Boolean);
   }
 
-  function buildLayout(forecastStart, payloadUnit, showSpotAxis = false, windows = [], windowMode = "best") {
+  function buildLayout(
+    forecastStart,
+    payloadUnit,
+    showSpotAxis = false, 
+    windows = [],
+    windowMode = "best",
+    chartType = "line"
+    ) {
     const theme = getMainChartTheme();
     const shapes = buildChartShapes(forecastStart, windows, windowMode);
 
@@ -1670,9 +1677,13 @@
 
       xaxis: {
         title: { text: "Time" },
+        nticks: chartType === "bar" ? 24 : 16,
         tickfont: { color: theme.muted },
         tickangle: 0,
-        tickformat: "%H:%M<br>%d.%m.%y",
+        tickformat: "%d.%m<br>%H:%M",
+        unifiedhovertitle: {
+          text: "%{x|%d.%m.%Y %H:%M}"
+        },
 
         rangeslider: {
           visible: true
@@ -2450,7 +2461,8 @@
         payloadUnit,
         showSpotPrices,
         displayedWindows,
-        currentWindowDisplayMode
+        currentWindowDisplayMode,
+        currentChartType
       );
       const config = { 
         responsive: true, 
@@ -2519,7 +2531,8 @@
         payloadUnit,
         showSpotPrices,
         displayedWindows,
-        currentWindowDisplayMode
+        currentWindowDisplayMode,
+        currentChartType
       );
       const config = { 
         responsive: true, 
@@ -2571,7 +2584,8 @@
       payloadUnit,
       showSpotPrices,
       displayedWindows,
-      currentWindowDisplayMode
+      currentWindowDisplayMode,
+      currentChartType
     );
     const config = {
       responsive: true,
