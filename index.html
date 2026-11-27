@@ -1637,8 +1637,11 @@
         color: theme.text
       },
 
+      // hovermode: "closest",
+      // hoverdistance: 100,
       hovermode: "x unified",
       hoverdistance: 10,
+
       barmode: "group",
 
       legend: {
@@ -1731,7 +1734,171 @@
     );
   }
 
+  // A helper function for creating visual-only hoverinfo-less entries
+  function makeConnectorTraces(
+    fromEntry,
+    toEntry,
+    color,
+    fillcolor,
+    baseline,
+    yAutoscale
+    ) {
+    if (!fromEntry || !toEntry) {
+      return [];
+    }
+
+    const x = [fromEntry[0], toEntry[0]];
+    const y = [fromEntry[1], toEntry[1]];
+
+    const connector = {
+      x,
+      y,
+      type: "scatter",
+      mode: "lines",
+      showlegend: false,
+      hoverinfo: "skip",
+
+      // With dynamic autoscaling, fill to the preceding baseline trace.
+      // Otherwise, fill directly to zero.
+      fill: yAutoscale ? "tonexty" : "tozeroy",
+      fillcolor,
+
+      line: {
+        color,
+        width: 3,
+        shape: "linear"
+      }
+    };
+
+    if (!yAutoscale) {
+      return [connector];
+    }
+
+    const connectorBaseline = {
+      x,
+      y: [baseline, baseline],
+      type: "scatter",
+      mode: "lines",
+      showlegend: false,
+      hoverinfo: "skip",
+      line: { width: 0 }
+    };
+
+    // Ordering is important: connector fills to connectorBaseline.
+    return [connectorBaseline, connector];
+  }
+
+  function makeBarTrace({
+    entries,
+    baseline,
+    unit,
+    name,
+    legendrank,
+    showlegend,
+    color,
+    offsetgroup
+    }) {
+    return {
+      x: entries.map(([timestamp]) => timestamp),
+      y: entries.map(([, value]) => value - baseline),
+      base: baseline,
+      customdata: entries.map(([, value]) => value),
+      type: "bar",
+      name,
+      legendrank,
+      showlegend,
+      ...(offsetgroup ? { offsetgroup } : {}),
+      meta: { unit },
+      marker: { color },
+      hovertemplate:
+        `<b>%{customdata:.2f} %{meta.unit}</b>` +
+        `<extra>${name}</extra>`
+    };
+  }
+
+  function makeLineTrace({
+    entries,
+    unit,
+    name,
+    legendrank,
+    showlegend,
+    lineColor,
+    fillColor,
+    fill,
+    showMarkers = false
+    }) {
+    return {
+      x: entries.map(([timestamp]) => timestamp),
+      y: entries.map(([, value]) => value),
+      type: "scatter",
+      mode: "lines",
+      name,
+      legendrank,
+      showlegend,
+      meta: { unit },
+      fill,
+      fillcolor: fillColor,
+      line: {
+        color: lineColor,
+        width: 3,
+        shape: "spline"
+      },
+      ...(showMarkers
+        ? {
+            marker: {
+              size: 6,
+              symbol: "circle",
+              color: lineColor
+            }
+          }
+        : {}),
+      hovertemplate:
+        `<b>%{y:.2f} %{meta.unit}</b>` +
+        `<extra>${name}</extra>`
+    };
+  }
+
+  function makeBaselineTrace(entries, baseline) {
+    return {
+      x: entries.map(([timestamp]) => timestamp),
+      y: Array(entries.length).fill(baseline),
+      type: "scatter",
+      mode: "lines",
+      showlegend: false,
+      line: { width: 0 },
+      hoverinfo: "skip"
+    };
+  }
+
   function makeTracesFromPayload(payload, yAutoscale) {
+    // All chart colors are defined here so that each trace's line,
+    // marker, fill, bar, and connector colors are easy to compare.
+    const colors = {
+      history: {
+        line: "rgb(74, 144, 226)",
+        fill: "rgba(74, 144, 226, 0.1)",
+        bar: "rgb(89, 150, 222)"
+      },
+      todayForecast: {
+        line: "rgb(255, 140, 0)",
+        fill: "rgba(255, 140, 0, 0.1)",
+        bar: "rgb(255, 150, 30)"
+      },
+      tomorrowForecast: {
+        line: "rgb(215, 120, 20)",
+        fill: "rgba(215, 120, 20, 0.1)",
+        bar: "rgb(225, 130, 20)"
+      },
+      historyToForecastConnector: {
+        line: "rgb(74, 144, 226)",
+        fill: "rgba(74, 144, 226, 0.1)"
+      },
+      todayToTomorrowConnector: {
+        line: "rgb(255, 140, 0)",
+        fill: "rgba(255, 140, 0, 0.1)"
+      }
+    };
+
     const data = payload.data || {};
     const history = data.history || {};
     const forecast = data.forecast || {};
@@ -1744,225 +1911,184 @@
     const midnight = getForecastMidnight(payload);
 
     const todayForecastEntries = midnight
-      ? forecastEntries.filter(([timestamp]) =>
-          new Date(timestamp.split("+")[0]) < midnight
+      ? forecastEntries.filter(
+          ([timestamp]) =>
+            new Date(timestamp.split("+")[0]) < midnight
         )
       : forecastEntries;
 
     const tomorrowForecastEntries = midnight
-      ? forecastEntries.filter(([timestamp]) =>
-          new Date(timestamp.split("+")[0]) >= midnight
+      ? forecastEntries.filter(
+          ([timestamp]) =>
+            new Date(timestamp.split("+")[0]) >= midnight
         )
       : [];
 
-    // Connect history and forecast traces by adding first forecast point to history.
-    if (historyEntries.length > 0 && forecastEntries.length > 0 && currentChartType === "line") {
-      historyEntries.push(forecastEntries[0]);
-    }
+    const isLineChart = currentChartType === "line";
 
-    // Connect today's and tomorrow's and forecast traces by adding first forecast point to history.
-    if (todayForecastEntries.length > 0 && tomorrowForecastEntries.length > 0 && currentChartType === "line") {
-      todayForecastEntries.push(tomorrowForecastEntries[0]);
-    }
+    // Decide whether connector traces are needed.
+    const connectHistoryToForecast =
+      isLineChart &&
+      historyEntries.length > 0 &&
+      forecastEntries.length > 0;
+
+    const connectTodayToTomorrow =
+      isLineChart &&
+      todayForecastEntries.length > 0 &&
+      tomorrowForecastEntries.length > 0;
 
     // Share one scale calculation between the traces and Y-axis layout.
     const yAxisScale = getYAxisScale(payload, yAutoscale);
+
     currentYAxisBaseline = yAxisScale.baseline;
     currentYAxisRange = yAxisScale.range;
+
     const baseline = currentYAxisBaseline ?? 0;
 
+    // Bar traces do not use connector or baseline traces.
     if (currentChartType === "bar") {
-      return [
-        {
-          x: historyEntries.map(e => e[0]),
-          y: historyEntries.map(e => e[1] - baseline),
-          base: baseline,
-          customdata: historyEntries.map(e => e[1]),
-          type: "bar",
-          name: "History",
-          legendrank: 1,
-          showlegend: true,
-          meta: { unit: unit },
-          marker: { color: "rgb(89, 150, 222)" },
-          hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>History</extra>'
-        },
-        {
-          x: todayForecastEntries.map(e => e[0]),
-          y: todayForecastEntries.map(e => e[1] - baseline),
-          base: baseline,
-          customdata: todayForecastEntries.map(e => e[1]),
-          type: "bar",
-          name: "Forecast",
-          legendrank: 2,
-          showlegend: true,
-          offsetgroup: "forecast",
-          meta: { unit: unit },
-          marker: { color: "rgb(255, 150, 30)" },
-          hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>Forecast</extra>'
-        },
-        {
-          x: tomorrowForecastEntries.map(e => e[0]),
-          y: tomorrowForecastEntries.map(e => e[1] - baseline),
-          base: baseline,
-          customdata: tomorrowForecastEntries.map(e => e[1]),
-          type: "bar",
-          name: "Forecast",
-          legendrank: 2,
-          showlegend: false,
-          offsetgroup: "forecast",
-          meta: { unit: unit },
-          marker: { color: "rgb(225, 130, 20)" },
-          hovertemplate: '<b>%{customdata:.2f} %{meta.unit}</b><extra>Forecast</extra>'
-        }
-      ];
-    }
-
-    // If autoscale is disabled, return simple traces without dynamic fill baseline.
-    if (!yAutoscale) {
-      const historyTrace = {
-        x: historyEntries.map(e => e[0]),
-        y: historyEntries.map(e => e[1]),
-        type: "scatter",
-        mode: "lines",
+      const historyBarTrace = makeBarTrace({
+        entries: historyEntries,
+        baseline,
+        unit,
         name: "History",
         legendrank: 1,
         showlegend: true,
-        meta: { unit: unit },
-        fill: "tozeroy",
-        fillcolor: "rgba(74,144,226,0.1)",
-        line: { color: "rgb(74,144,226)", width: 3, shape: "spline" },
-        hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>'
-      };
+        color: colors.history.bar
+      });
 
-      const forecastTrace = {
-        x: todayForecastEntries.map(e => e[0]),
-        y: todayForecastEntries.map(e => e[1]),
-        type: "scatter",
-        mode: "lines",
+      const todayForecastBarTrace = makeBarTrace({
+        entries: todayForecastEntries,
+        baseline,
+        unit,
         name: "Forecast",
         legendrank: 2,
         showlegend: true,
-        meta: { unit: unit },
-        fill: "tozeroy",
-        fillcolor: "rgba(255,140,0,0.1)",
-        line: { color: "rgb(255,140,0)", width: 3, shape: "spline" },
-        hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
-      };
+        color: colors.todayForecast.bar,
+        offsetgroup: "forecast"
+      });
 
-      const tomorrowForecastTrace = {
-        x: tomorrowForecastEntries.map(e => e[0]),
-        y: tomorrowForecastEntries.map(e => e[1]),
-        type: "scatter",
-        mode: "lines",
+      const tomorrowForecastBarTrace = makeBarTrace({
+        entries: tomorrowForecastEntries,
+        baseline,
+        unit,
         name: "Forecast",
         legendrank: 2,
         showlegend: false,
-        meta: { unit: unit },
-        fill: "tozeroy",
-        fillcolor: "rgba(215, 120, 20,0.1)",
-        line: { color: "rgb(215, 120, 20)", width: 3, shape: "spline" },
-        hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>'
-      };
+        color: colors.tomorrowForecast.bar,
+        offsetgroup: "forecast"
+      });
 
-      return [historyTrace, forecastTrace, tomorrowForecastTrace];
+      return [
+        historyBarTrace,
+        todayForecastBarTrace,
+        tomorrowForecastBarTrace
+      ];
     }
 
-    const historyTrace = {
-      x: historyEntries.map(e => e[0]),
-      y: historyEntries.map(e => e[1]),
-      type: "scatter",
-      mode: "lines",
+    // Create visual-only connector/bridge traces.
+    const connectors = [];
+
+    if (connectHistoryToForecast) {
+      connectors.push(
+        ...makeConnectorTraces(
+          historyEntries.at(-1),
+          forecastEntries[0],
+          colors.historyToForecastConnector.line,
+          colors.historyToForecastConnector.fill,
+          baseline,
+          yAutoscale
+        )
+      );
+    }
+
+    if (connectTodayToTomorrow) {
+      connectors.push(
+        ...makeConnectorTraces(
+          todayForecastEntries.at(-1),
+          tomorrowForecastEntries[0],
+          colors.todayToTomorrowConnector.line,
+          colors.todayToTomorrowConnector.fill,
+          baseline,
+          yAutoscale
+        )
+      );
+    }
+
+    const fillMode = yAutoscale ? "tonexty" : "tozeroy";
+
+    const historyTrace = makeLineTrace({
+      entries: historyEntries,
+      unit,
       name: "History",
       legendrank: 1,
       showlegend: true,
-      meta: { unit: unit },
-      fill: "tonexty",
-      fillcolor: "rgba(74, 144, 226, 0.1)",
-      line: {
-        color: "rgb(74, 144, 226)",
-        width: 3,
-        shape: "spline"
-      },
-      hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>History</extra>',
-    };
+      lineColor: colors.history.line,
+      fillColor: colors.history.fill,
+      fill: fillMode
+    });
 
-    const forecastTrace = {
-      x: todayForecastEntries.map(e => e[0]),
-      y: todayForecastEntries.map(e => e[1]),
-      type: "scatter",
-      mode: "lines",
+    const todayForecastTrace = makeLineTrace({
+      entries: todayForecastEntries,
+      unit,
       name: "Forecast",
       legendrank: 2,
       showlegend: true,
-      meta: { unit: unit },
-      fill: "tonexty",
-      fillcolor: "rgba(255, 140, 0, 0.1)",
-      line: {
-        color: "rgb(255, 140, 0)",
-        width: 3,
-        shape: "spline"
-      },
-      marker: { size: 6, symbol: "circle", color: "rgb(255, 140, 0)" },
-      hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>',
-    };
+      lineColor: colors.todayForecast.line,
+      fillColor: colors.todayForecast.fill,
+      fill: fillMode,
+      showMarkers: yAutoscale
+    });
 
-    const tomorrowForecastTrace = {
-      x: tomorrowForecastEntries.map(e => e[0]),
-      y: tomorrowForecastEntries.map(e => e[1]),
-      type: "scatter",
-      mode: "lines",
+    const tomorrowForecastTrace = makeLineTrace({
+      entries: tomorrowForecastEntries,
+      unit,
       name: "Forecast",
       legendrank: 2,
       showlegend: false,
-      meta: { unit: unit },
-      fill: "tonexty",
-      fillcolor: "rgba(215, 120, 20, 0.1)",
-      line: {
-        color: "rgb(215, 120, 20)",
-        width: 3,
-        shape: "spline"
-      },
-      marker: { size: 6, symbol: "circle", color: "rgb(215, 120, 20)" },
-      hovertemplate: '<b>%{y:.2f} %{meta.unit}</b><extra>Forecast</extra>',
-    };
+      lineColor: colors.tomorrowForecast.line,
+      fillColor: colors.tomorrowForecast.fill,
+      fill: fillMode,
+      showMarkers: yAutoscale
+    });
 
-    const historyBaseline = {
-      x: historyEntries.map(e => e[0]),
-      y: Array(historyEntries.length).fill(baseline),
-      type: "scatter",
-      mode: "lines",
-      showlegend: false,
-      line: { width: 0 },
-      hoverinfo: "skip"
-    };
+    // Without autoscaling, line traces fill toward zero and therefore
+    // do not need invisible baseline traces.
+    if (!yAutoscale) {
+      return [
+        historyTrace,
+        todayForecastTrace,
+        tomorrowForecastTrace,
+        ...connectors
+      ];
+    }
 
-    const forecastBaseline = {
-      x: todayForecastEntries.map(e => e[0]),
-      y: Array(todayForecastEntries.length).fill(baseline),
-      type: "scatter",
-      mode: "lines",
-      showlegend: false,
-      line: { width: 0 },
-      hoverinfo: "skip"
-    };
+    // With autoscaling, each invisible baseline must be immediately before
+    // its corresponding trace because Plotly's "tonexty" fills toward the
+    // preceding compatible scatter trace.
+    const historyBaselineTrace = makeBaselineTrace(
+      historyEntries,
+      baseline
+    );
 
-    const tomorrowForecastBaseline = {
-      x: tomorrowForecastEntries.map(e => e[0]),
-      y: Array(tomorrowForecastEntries.length).fill(baseline),
-      type: "scatter",
-      mode: "lines",
-      showlegend: false,
-      line: { width: 0 },
-      hoverinfo: "skip"
-    };
+    const todayForecastBaselineTrace = makeBaselineTrace(
+      todayForecastEntries,
+      baseline
+    );
+
+    const tomorrowForecastBaselineTrace = makeBaselineTrace(
+      tomorrowForecastEntries,
+      baseline
+    );
 
     return [
-      historyBaseline,
+      historyBaselineTrace,
       historyTrace,
-      forecastBaseline,
-      forecastTrace,
-      tomorrowForecastBaseline,
-      tomorrowForecastTrace
+      todayForecastBaselineTrace,
+      todayForecastTrace,
+      tomorrowForecastBaselineTrace,
+      tomorrowForecastTrace,
+      ...connectors
     ];
   }
 
