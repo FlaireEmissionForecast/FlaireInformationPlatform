@@ -2120,6 +2120,11 @@
   }
 
   function makeSpotPriceTraces(payload, range) {
+    const colors = {
+      history: "rgb(0, 130, 110)",
+      forecast: "rgb(0, 200, 165)",
+      connector: "rgb(0, 130, 110)"
+    };
     const data = payload.data || {};
     const toEntries = obj => Object.entries(obj || {})
       .filter(([timestamp]) => {
@@ -2145,7 +2150,7 @@
         mode: "lines",
         name: "Spot price (history)",
         yaxis: "y2",
-        line: { color: "rgb(0, 130, 110)", width: 3, dash: lineStyle },
+        line: { color: colors.history, width: 3, dash: lineStyle },
         hovertemplate: '<b>%{y:.2f} €/MWh</b><extra>Spot price (History)</extra>'
       });
     }
@@ -2158,7 +2163,7 @@
         mode: "lines",
         name: "Spot price (day-ahead)",
         yaxis: "y2",
-        line: { color: "rgb(0, 200, 165)", width: 3, dash: lineStyle },
+        line: { color: colors.forecast, width: 3, dash: lineStyle },
         hovertemplate: '<b>%{y:.2f} €/MWh</b><extra>Spot price (Day-ahead)</extra>'
       });
     }
