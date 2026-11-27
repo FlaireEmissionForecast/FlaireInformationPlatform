@@ -1734,21 +1734,24 @@
     );
   }
 
-  // A helper function for creating visual-only hoverinfo-less entries
+  // A helper function for creating visual-only, hoverinfo-less connector traces.
   function makeConnectorTraces(
     fromEntry,
     toEntry,
     color,
-    fillcolor,
-    baseline,
-    yAutoscale
-    ) {
+    fillcolor = null,
+    lineStyle = "solid",
+    baseline = 0,
+    yAutoscale = false,
+    yaxis = "y"
+  ) {
     if (!fromEntry || !toEntry) {
       return [];
     }
 
     const x = [fromEntry[0], toEntry[0]];
     const y = [fromEntry[1], toEntry[1]];
+    const hasFill = fillcolor !== null;
 
     const connector = {
       x,
@@ -1757,20 +1760,27 @@
       mode: "lines",
       showlegend: false,
       hoverinfo: "skip",
+      yaxis,
 
-      // With dynamic autoscaling, fill to the preceding baseline trace.
-      // Otherwise, fill directly to zero.
-      fill: yAutoscale ? "tonexty" : "tozeroy",
-      fillcolor,
+      // Filled connectors use either the dynamic baseline or zero.
+      // Connectors without a fill explicitly use "none".
+      fill: hasFill
+        ? yAutoscale
+          ? "tonexty"
+          : "tozeroy"
+        : "none",
+      ...(hasFill ? { fillcolor } : {}),
 
       line: {
         color,
         width: 3,
-        shape: "linear"
+        shape: "linear",
+        dash: lineStyle
       }
     };
 
-    if (!yAutoscale) {
+    // A baseline trace is only required for a dynamically autoscaled fill.
+    if (!hasFill || !yAutoscale) {
       return [connector];
     }
 
@@ -1781,6 +1791,7 @@
       mode: "lines",
       showlegend: false,
       hoverinfo: "skip",
+      yaxis,
       line: { width: 0 }
     };
 
@@ -1925,6 +1936,7 @@
       : [];
 
     const isLineChart = currentChartType === "line";
+    const lineStyle = "solid";
 
     // Decide whether connector traces are needed.
     const connectHistoryToForecast =
@@ -1996,6 +2008,7 @@
           forecastEntries[0],
           colors.historyToForecastConnector.line,
           colors.historyToForecastConnector.fill,
+          lineStyle,
           baseline,
           yAutoscale
         )
@@ -2009,6 +2022,7 @@
           tomorrowForecastEntries[0],
           colors.todayToTomorrowConnector.line,
           colors.todayToTomorrowConnector.fill,
+          lineStyle,
           baseline,
           yAutoscale
         )
@@ -2119,17 +2133,11 @@
     const forecastEntries = toEntries(data.forecast);
     const traces = [];
 
-    // Connect history and day-ahead traces by adding first forecast point to history
-    if (historyEntries.length > 0 && forecastEntries.length > 0) {
-      const firstForecast = forecastEntries[0];
-      historyEntries.push(firstForecast);
-    }
-
     // Use dashed lines when line graphs are on and solid line with bar charts
     // Options: "solid", "dot", "dash", "longdash", "dashdot", or "longdashdot"
     let lineStyle = currentChartType === "line" ? "dot" : "solid";
 
-    if (historyEntries.length) {
+    if (historyEntries.length > 0) {
       traces.push({
         x: historyEntries.map(e => e[0]),
         y: historyEntries.map(e => e[1]),
@@ -2142,7 +2150,7 @@
       });
     }
 
-    if (forecastEntries.length) {
+    if (forecastEntries.length > 0) {
       traces.push({
         x: forecastEntries.map(e => e[0]),
         y: forecastEntries.map(e => e[1]),
@@ -2155,6 +2163,27 @@
       });
     }
 
+    // Decide whether connector traces are needed.
+    const connectHistoryToForecast =
+      historyEntries.length > 0 &&
+      forecastEntries.length > 0;
+
+    // Connect history and day-ahead traces by adding first forecast point to history
+    // NOTE: Has to be last for fill order to work properly
+    if (connectHistoryToForecast) {
+      traces.push(
+        ...makeConnectorTraces(
+          historyEntries.at(-1),
+          forecastEntries[0],
+          colors.connector,
+          null,       // No fill
+          lineStyle,
+          0,          // Baseline is unused because there is no fill
+          false,      // Autoscale fill is disabled
+          "y2"        // Spot-price traces use the secondary Y-axis
+        )
+      );
+    }
     return traces;
   }
 
